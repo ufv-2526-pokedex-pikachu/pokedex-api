@@ -1,0 +1,17 @@
+# Versiones comprobadas juntas con Python 3.12 (2026-11-05)
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+sqlmodel==0.0.48
+pydantic-settings==2.16.2
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+# passlib 1.7.4 falla con bcrypt >= 4.1 (avisos) y 5.x (error con contraseñas largas)
+bcrypt==4.0.1
+slowapi==0.1.10
+httpx==0.28.1
+python-multipart==0.0.33
+reportlab==5.1.0
+pytest==9.2.0
+pytest-cov==7.1.0
+pytest-asyncio==1.4.1.post1
+respx==0.23.1

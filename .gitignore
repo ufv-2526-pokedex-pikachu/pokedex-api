@@ -1,0 +1,26 @@
+# Secretos: nunca se suben
+.env
+
+# Entorno virtual y caché de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Base de datos local
+*.db
+
+# Tests y cobertura
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs y ficheros exportados
+*.log
+/*.pdf
+/*.csv
+
+# Editores y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
