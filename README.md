@@ -71,7 +71,19 @@ _Pendiente._
 ## Decisiones de Diseño
 
 ### Rate limiting
-_Pendiente._
+Se aplica con `slowapi`, con una instancia única en `app/limiter.py`. Se cuenta por IP y por endpoint.
+
+| Tipo de endpoint | Límite | Constante |
+|---|---|---|
+| Registro | 5/hora | `LIMIT_REGISTER` |
+| Login | 10/minuto | `LIMIT_LOGIN` |
+| Llaman a PokeAPI | 30/minuto | `LIMIT_POKEAPI` |
+| Resto de autenticados | 100/minuto | `LIMIT_AUTHENTICATED` |
+
+- **¿Por qué límites distintos?** Porque cada endpoint tiene un riesgo y un coste distintos. Registrarse es algo poco frecuente y se puede usar para crear cuentas falsas. El login es el objetivo de los ataques de fuerza bruta. Los endpoints que llaman a PokeAPI consumen un servicio externo y gratuito. El resto solo trabaja con nuestra base de datos y lo usan usuarios ya identificados, así que admite más uso.
+- **¿Cómo protege esto la API?** Hace mucho más lentos los ataques de fuerza bruta contra contraseñas, limita la creación masiva de cuentas, reduce el riesgo de que un solo cliente sature el servidor y evita que nuestra API abuse de PokeAPI.
+- **¿Qué pasa si un usuario excede el límite?** La API responde `429 Too Many Requests` con un `detail` y la cabecera `Retry-After`, y registra el exceso en el log. No se ejecuta el endpoint. El cliente puede volver a intentarlo cuando se renueve la ventana del límite.
+- **Limitaciones conocidas:** los contadores se guardan en memoria, así que se pierden al reiniciar y no se comparten entre varios procesos. Detrás de un proxy, todas las peticiones parecerían venir de la misma IP. Para producción habría que usar un almacenamiento compartido, como Redis, y leer la IP real del cliente.
 
 ### Versionado
 _Pendiente._
@@ -84,6 +96,7 @@ _Pendiente._
 - **Arranque:** las tablas se crean en el `lifespan` de FastAPI, porque `@app.on_event` está obsoleto.
 - **`SECRET_KEY` sin valor por defecto:** la app no arranca sin ella, para no funcionar nunca con una clave insegura.
 - **Versiones fijadas:** `bcrypt==4.0.1`, porque `passlib` 1.7.4 da avisos con `bcrypt` 4.1+ y errores con la 5.x.
+- **CORS:** solo se admiten los orígenes de `CORS_ORIGINS` y los métodos y cabeceras que usa la API, nunca `*`. Los navegadores bloquean las peticiones desde cualquier otro origen; CORS no protege frente a clientes que no son navegadores, como `curl`, y para eso están la autenticación y el rate limiting.
 - **Tests:** además de los ficheros de la estructura del enunciado, `tests/test_api.py` reúne tests transversales y `tests/test_models.py` prueba las reglas de la base de datos.
 
 ## Decisiones de Seguridad
