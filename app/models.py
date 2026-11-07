@@ -1,0 +1,87 @@
+"""Modelos de base de datos (SQLModel), tal como los define el enunciado.
+
+Cambios respecto al enunciado (documentados en README → «Otras decisiones»):
+- `datetime.utcnow()` está obsoleto en Python 3.12: se usa `datetime.now(timezone.utc)`.
+- `Team.members` borra en cascada sus miembros al borrar el equipo.
+- `TeamMember.pokedex_entry` permite llegar desde un miembro a su entrada de la Pokédex.
+"""
+
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from sqlmodel import Field, Relationship, SQLModel
+
+
+def _ahora_utc() -> datetime:
+    """Fecha y hora actual en UTC (sustituye a `datetime.utcnow`, obsoleto)."""
+    return datetime.now(timezone.utc)
+
+
+class User(SQLModel, table=True):
+    """Usuario del sistema"""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True, min_length=3, max_length=50)
+    email: str = Field(unique=True, index=True)
+    hashed_password: str
+    created_at: datetime = Field(default_factory=_ahora_utc)
+    is_active: bool = Field(default=True)
+
+    # Relaciones
+    pokedex_entries: List["PokedexEntry"] = Relationship(back_populates="owner")
+    teams: List["Team"] = Relationship(back_populates="trainer")
+
+
+class PokedexEntry(SQLModel, table=True):
+    """Entrada en la Pokédex de un usuario"""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: int = Field(foreign_key="user.id")
+
+    # Datos del Pokémon (de PokeAPI)
+    pokemon_id: int = Field(index=True)  # ID en PokeAPI
+    pokemon_name: str
+    pokemon_sprite: str  # URL de la imagen
+
+    # Datos del usuario
+    is_captured: bool = Field(default=False)
+    capture_date: Optional[datetime] = None
+    nickname: Optional[str] = Field(default=None, max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    favorite: bool = Field(default=False)
+
+    created_at: datetime = Field(default_factory=_ahora_utc)
+
+    # Relaciones
+    owner: User = Relationship(back_populates="pokedex_entries")
+
+
+class Team(SQLModel, table=True):
+    """Equipo de batalla (máximo 6 Pokémon)"""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    trainer_id: int = Field(foreign_key="user.id")
+    name: str = Field(max_length=100)
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=_ahora_utc)
+
+    # Relaciones
+    trainer: User = Relationship(back_populates="teams")
+    # Al borrar el equipo se borran sus miembros, nunca las entradas de la Pokédex.
+    members: List["TeamMember"] = Relationship(
+        back_populates="team",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class TeamMember(SQLModel, table=True):
+    """Relación muchos a muchos entre Team y PokedexEntry"""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    team_id: int = Field(foreign_key="team.id")
+    pokedex_entry_id: int = Field(foreign_key="pokedexentry.id")
+    position: int = Field(ge=1, le=6)  # Posición en el equipo (1-6)
+
+    # Relaciones
+    team: Team = Relationship(back_populates="members")
+    pokedex_entry: PokedexEntry = Relationship()
