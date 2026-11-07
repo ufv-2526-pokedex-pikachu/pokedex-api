@@ -172,5 +172,62 @@ async def test_get_pokemon_logs_timeout(service, api, caplog):
     assert f"{PokeAPIService.BASE_URL}/pokemon/25 -> timeout" in caplog.text
 
 
+def species_payload(entries: list[tuple[str, str]]) -> dict:
+    """Respuesta de especie con pares (idioma, texto)."""
+    return {
+        "id": 25,
+        "name": "pikachu",
+        "flavor_text_entries": [
+            {"flavor_text": text, "language": {"name": lang, "url": "x"}} for lang, text in entries
+        ],
+    }
+
+
+async def test_get_species_prefers_spanish_and_cleans_text(service, api):
+    """Elige el español aunque no sea el primero, y limpia saltos y guiones invisibles."""
+    api.get("/pokemon-species/25").respond(
+        json=species_payload(
+            [("en", "In English."), ("es", "Ratón\neléc­trico\famarillo."), ("es", "Otra.")]
+        )
+    )
+
+    assert await service.get_species(25) == {
+        "id": 25,
+        "name": "pikachu",
+        "description": "Ratón eléctrico amarillo.",
+    }
+
+
+async def test_get_species_falls_back_to_english(service, api):
+    api.get("/pokemon-species/25").respond(
+        json=species_payload([("ja", "日本語"), ("en", "In English.")])
+    )
+
+    assert (await service.get_species(25))["description"] == "In English."
+
+
+async def test_get_species_without_descriptions_returns_empty(service, api):
+    api.get("/pokemon-species/25").respond(json=species_payload([("ja", "日本語")]))
+
+    assert (await service.get_species(25))["description"] == ""
+
+
+async def test_get_species_not_found_returns_404(service, api):
+    api.get("/pokemon-species/99999").respond(404)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_species(99999)
+
+    assert exc.value.status_code == 404
+
+
+async def test_get_species_invalid_identifier_returns_400(service, api):
+    with pytest.raises(HTTPException) as exc:
+        await service.get_species("../pokemon/1")
+
+    assert exc.value.status_code == 400
+    assert not api.calls.called
+
+
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service

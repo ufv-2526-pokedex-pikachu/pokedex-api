@@ -62,6 +62,20 @@ def _to_pokemon(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _to_species(data: dict[str, Any]) -> dict[str, Any]:
+    """Extrae la especie con su descripción en español o, si no existe, en inglés."""
+    descriptions: dict[str, str] = {}
+    for entry in data["flavor_text_entries"]:
+        descriptions.setdefault(entry["language"]["name"], entry["flavor_text"])
+    description = descriptions.get("es") or descriptions.get("en") or ""
+    # Los textos de PokeAPI traen saltos de línea y guiones invisibles de los juegos originales.
+    return {
+        "id": data["id"],
+        "name": data["name"],
+        "description": " ".join(description.replace("­", "").split()),
+    }
+
+
 class PokeAPIService:
     """Cliente REST de PokeAPI. Todos los fallos se convierten en `HTTPException`."""
 
@@ -120,6 +134,13 @@ class PokeAPIService:
         slug = _normalize_slug(identifier, "identifier")
         async with self._new_client() as client:
             return await self._fetch_pokemon(client, slug)
+
+    async def get_species(self, identifier: str | int) -> dict[str, Any]:
+        """Obtiene la especie de un Pokémon, con los mismos errores que `get_pokemon`."""
+        slug = _normalize_slug(identifier, "identifier")
+        async with self._new_client() as client:
+            payload = await self._get_json(client, f"/pokemon-species/{slug}")
+        return _transform(_to_species, payload)
 
 
 # Instancia única de la aplicación.
