@@ -12,7 +12,9 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 
 import app.models  # noqa: E402,F401  (registra las tablas)
+from app.auth import create_access_token, hash_password  # noqa: E402
 from app.database import get_session  # noqa: E402
+from app.models import User  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -35,3 +37,22 @@ def client(session):
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
+
+
+TEST_PASSWORD = "Pikachu123"
+
+
+@pytest.fixture
+def test_user(session):
+    """Usuario ya registrado, con contraseña `TEST_PASSWORD`."""
+    user = User(username="ash", email="ash@poke.com", hashed_password=hash_password(TEST_PASSWORD))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers(test_user):
+    """Cabecera `Authorization` con un token de acceso válido de `test_user`."""
+    return {"Authorization": f"Bearer {create_access_token(test_user)}"}
