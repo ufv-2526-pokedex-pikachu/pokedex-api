@@ -38,6 +38,7 @@ Copia `.env.example` como `.env` y rellena los valores. El `.env` real nunca se 
 | `CORS_ORIGINS` | Orígenes permitidos (lista JSON) | `["http://localhost:3000"]` |
 | `POKEAPI_BASE_URL` | URL base de PokeAPI | `https://pokeapi.co/api/v2` |
 | `POKEAPI_TIMEOUT` | Tiempo máximo de espera a PokeAPI (s) | `10` |
+| `POKEAPI_CACHE_TTL` | Segundos que dura cada respuesta en caché (`0` la desactiva) | `3600` |
 | `LOG_LEVEL` | Nivel de log | `INFO` |
 | `RATE_LIMIT_ENABLED` | Activa o desactiva el rate limiting | `true` |
 
@@ -88,6 +89,7 @@ _Pendiente._
 - **Arranque:** las tablas se crean en el `lifespan` de FastAPI, porque `@app.on_event` está obsoleto.
 - **`SECRET_KEY` sin valor por defecto:** la app no arranca sin ella, para no funcionar nunca con una clave insegura.
 - **Versiones fijadas:** `bcrypt==4.0.1`, porque `passlib` 1.7.4 da avisos con `bcrypt` 4.1+ y errores con la 5.x.
+- **Caché de PokeAPI (bonus):** las respuestas correctas se guardan en memoria durante `POKEAPI_CACHE_TTL` segundos, porque sus datos casi no cambian y así se responde antes y se llama menos a un servicio público. Los errores no se guardan, para poder recuperarse en cuanto PokeAPI vuelva a responder. Guarda un máximo de 1000 respuestas, y se pierde al reiniciar y no se comparte entre procesos.
 - **Tests:** además de los ficheros de la estructura del enunciado, `tests/test_api.py` reúne tests transversales y `tests/test_models.py` prueba las reglas de la base de datos.
 
 ## Decisiones de Seguridad
