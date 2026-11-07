@@ -4,8 +4,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from slowapi.errors import RateLimitExceeded
 
 from app.database import create_db_and_tables
+from app.limiter import limiter, rate_limit_exceeded_handler
 
 
 @asynccontextmanager
@@ -22,6 +24,9 @@ app = FastAPI(
     "estadísticas y equipos de batalla.",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 @app.get("/health", tags=["health"], summary="Comprobar que la API está viva")
