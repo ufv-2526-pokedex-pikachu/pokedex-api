@@ -47,8 +47,9 @@ async def fake_authenticated(request: Request) -> dict[str, bool]:
 
 
 @pytest.fixture
-def limited_client(client):
-    """Añade las rutas de prueba a la app real, para probar su configuración de verdad."""
+def limited_client(client, monkeypatch):
+    """Añade las rutas de prueba a la app real, con el limiter activo aunque el `.env` lo apague."""
+    monkeypatch.setattr(limiter, "enabled", True)
     routes_before = list(app.router.routes)
     app.include_router(fake_router)
     yield client
