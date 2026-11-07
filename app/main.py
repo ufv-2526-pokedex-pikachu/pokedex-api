@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.database import create_db_and_tables
+from app.routers import auth
 
 
 @asynccontextmanager
@@ -22,6 +23,8 @@ app = FastAPI(
     "estadísticas y equipos de batalla.",
     lifespan=lifespan,
 )
+
+app.include_router(auth.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Comprobar que la API está viva")
