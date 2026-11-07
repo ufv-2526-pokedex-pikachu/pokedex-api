@@ -1,5 +1,7 @@
 # Pokédex API
 
+![CI](https://github.com/ufv-2526-pokedex-pikachu/pokedex-api/actions/workflows/ci.yml/badge.svg)
+
 ## Descripción
 API REST de Pokédex personal hecha con FastAPI. Consume la [PokeAPI](https://pokeapi.co/) y permite a cada usuario gestionar su Pokédex, sus estadísticas y sus equipos de batalla.
 
@@ -53,7 +55,9 @@ uvicorn app.main:app --reload --reload-dir app
 ```bash
 pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 ```
-Los tests usan una base de datos SQLite en memoria (nueva en cada test) y nunca leen el `.env` ni usan la red: PokeAPI siempre va simulada.
+Los tests usan una base de datos SQLite en memoria (nueva en cada test) y nunca usan la red: PokeAPI siempre va simulada. Si no existen las variables `SECRET_KEY` y `DATABASE_URL`, `tests/conftest.py` pone valores de prueba; el resto de variables se lee del `.env` si existe, así que un valor mal escrito en él (por ejemplo, `CORS_ORIGINS` que no sea una lista JSON) impide que arranquen.
+
+La integración continua (`.github/workflows/ci.yml`) ejecuta estos mismos tests con cobertura en cada *push* y en cada *pull request* a `main` y `develop`. Si un test falla o la cobertura baja del 80 %, el flujo sale en rojo y el PR no se integra.
 
 ## Flujo de trabajo y despliegue
 - `main`: versión estable y entregable. Solo recibe PRs desde `develop`.
