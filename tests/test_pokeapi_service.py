@@ -229,5 +229,151 @@ async def test_get_species_invalid_identifier_returns_400(service, api):
     assert not api.calls.called
 
 
+def listing_payload(names: list[str], count: int | None = None) -> dict:
+    """Respuesta del listado de PokeAPI, que solo incluye nombre y URL."""
+    return {
+        "count": len(names) if count is None else count,
+        "next": None,
+        "previous": None,
+        "results": [{"name": name, "url": f"http://api/pokemon/{name}/"} for name in names],
+    }
+
+
+async def test_search_pokemon_paginates_and_returns_summary(service, api):
+    """Pasa limit y offset a PokeAPI, conserva el orden y devuelve la lista simplificada."""
+    listing = api.get("/pokemon", params={"limit": 2, "offset": 4}).respond(
+        json=listing_payload(["charmander", "charmeleon"], count=1302)
+    )
+    api.get("/pokemon/charmander").respond(json=pokemon_payload(4, "charmander"))
+    api.get("/pokemon/charmeleon").respond(json=pokemon_payload(5, "charmeleon"))
+
+    result = await service.search_pokemon(limit=2, offset=4)
+
+    assert listing.called
+    assert result == {
+        "count": 1302,
+        "results": [
+            {
+                "id": 4,
+                "name": "charmander",
+                "sprite": "http://img/4.png",
+                "types": ["electric"],
+            },
+            {
+                "id": 5,
+                "name": "charmeleon",
+                "sprite": "http://img/5.png",
+                "types": ["electric"],
+            },
+        ],
+    }
+
+
+async def test_search_pokemon_logs_url_with_query_params(service, api, caplog):
+    api.get("/pokemon").respond(json=listing_payload([]))
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        await service.search_pokemon(limit=2, offset=4)
+
+    assert f"{PokeAPIService.BASE_URL}/pokemon?limit=2&offset=4 -> 200" in caplog.text
+
+
+async def test_search_pokemon_filters_by_partial_name(service, api):
+    """Filtra sin distinguir mayúsculas; `count` es el total de coincidencias, no de la página."""
+    api.get("/pokemon", params={"limit": 100_000, "offset": 0}).respond(
+        json=listing_payload(["bulbasaur", "charmander", "charmeleon", "charizard"])
+    )
+    api.get("/pokemon/charmeleon").respond(json=pokemon_payload(5, "charmeleon"))
+
+    result = await service.search_pokemon(limit=1, offset=1, name=" CHAR ")
+
+    assert result["count"] == 3
+    assert [pokemon["name"] for pokemon in result["results"]] == ["charmeleon"]
+
+
+async def test_search_pokemon_without_matches_returns_empty(service, api):
+    api.get("/pokemon").respond(json=listing_payload(["bulbasaur"]))
+
+    assert await service.search_pokemon(name="zzz") == {"count": 0, "results": []}
+
+
+async def test_search_pokemon_detail_failure_returns_502(service, api):
+    """Si falla el detalle de un resultado, falla la búsqueda en vez de devolverla incompleta."""
+    api.get("/pokemon").respond(json=listing_payload(["pikachu"]))
+    api.get("/pokemon/pikachu").respond(500)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.search_pokemon()
+
+    assert exc.value.status_code == 502
+
+
+async def test_search_pokemon_unexpected_format_returns_502(service, api):
+    api.get("/pokemon").respond(json={"results": "no es un listado"})
+
+    with pytest.raises(HTTPException) as exc:
+        await service.search_pokemon()
+
+    assert exc.value.status_code == 502
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"limit": 0}, {"limit": 101}, {"offset": -1}, {"name": ""}, {"name": "../type"}],
+)
+async def test_search_pokemon_invalid_params_returns_400(service, api, params):
+    with pytest.raises(HTTPException) as exc:
+        await service.search_pokemon(**params)
+
+    assert exc.value.status_code == 400
+    assert not api.calls.called
+
+
+async def test_get_pokemon_by_type_returns_id_and_name(service, api):
+    api.get("/type/fire").respond(
+        json={
+            "id": 10,
+            "name": "fire",
+            "pokemon": [
+                {"slot": 1, "pokemon": {"name": "charmander", "url": "http://api/pokemon/4/"}},
+                {"slot": 1, "pokemon": {"name": "vulpix", "url": "http://api/pokemon/37"}},
+            ],
+        }
+    )
+
+    assert await service.get_pokemon_by_type("FIRE") == [
+        {"id": 4, "name": "charmander"},
+        {"id": 37, "name": "vulpix"},
+    ]
+
+
+async def test_get_pokemon_by_type_not_found_returns_404(service, api):
+    api.get("/type/nope").respond(404)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_pokemon_by_type("nope")
+
+    assert exc.value.status_code == 404
+
+
+async def test_get_pokemon_by_type_invalid_name_returns_400(service, api):
+    with pytest.raises(HTTPException) as exc:
+        await service.get_pokemon_by_type("../pokemon/1")
+
+    assert exc.value.status_code == 400
+    assert not api.calls.called
+
+
+async def test_get_pokemon_by_type_unexpected_url_returns_502(service, api):
+    api.get("/type/fire").respond(
+        json={"pokemon": [{"pokemon": {"name": "x", "url": "http://api/pokemon/sin-id/"}}]}
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_pokemon_by_type("fire")
+
+    assert exc.value.status_code == 502
+
+
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service

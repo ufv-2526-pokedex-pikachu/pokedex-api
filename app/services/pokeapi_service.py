@@ -1,5 +1,6 @@
 """Cliente asíncrono de PokeAPI: valida la entrada, gestiona errores y registra cada llamada."""
 
+import asyncio
 import logging
 import re
 import time
@@ -18,6 +19,9 @@ _SLUG_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]*")
 _MAX_SLUG_LENGTH = 100
 # Tope de conexiones simultáneas, para no saturar una API pública y gratuita.
 _MAX_CONNECTIONS = 20
+_MAX_SEARCH_LIMIT = 100
+# PokeAPI no filtra por texto: para buscar por nombre hay que pedir la lista completa.
+_ALL_POKEMON_LIMIT = 100_000
 
 
 def _elapsed_ms(start: float) -> float:
@@ -76,6 +80,22 @@ def _to_species(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _to_listing(data: dict[str, Any]) -> tuple[int, list[str]]:
+    """Extrae de un listado de PokeAPI el total y los nombres de la página."""
+    return data["count"], [item["name"] for item in data["results"]]
+
+
+def _to_type_members(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extrae los Pokémon de un tipo; su ID solo aparece al final de la URL de cada uno."""
+    return [
+        {
+            "id": int(item["pokemon"]["url"].rstrip("/").rsplit("/", 1)[-1]),
+            "name": item["pokemon"]["name"],
+        }
+        for item in data["pokemon"]
+    ]
+
+
 class PokeAPIService:
     """Cliente REST de PokeAPI. Todos los fallos se convierten en `HTTPException`."""
 
@@ -97,7 +117,7 @@ class PokeAPIService:
         params: dict[str, int] | None = None,
     ) -> Any:
         """Hace un GET a PokeAPI, registra URL, status y duración, y traduce los errores."""
-        url = f"{self.BASE_URL}{path}"
+        url = client.build_request("GET", path, params=params).url
         start = time.perf_counter()
         try:
             response = await client.get(path, params=params)
@@ -141,6 +161,51 @@ class PokeAPIService:
         async with self._new_client() as client:
             payload = await self._get_json(client, f"/pokemon-species/{slug}")
         return _transform(_to_species, payload)
+
+    async def search_pokemon(
+        self, limit: int = 20, offset: int = 0, name: str | None = None
+    ) -> dict[str, Any]:
+        """Lista Pokémon con paginación, con filtro opcional por parte del nombre.
+
+        El listado de PokeAPI solo trae nombres, así que el sprite y los tipos de
+        cada resultado se piden en paralelo. Lanza 400 si los parámetros no son válidos.
+        """
+        if not 1 <= limit <= _MAX_SEARCH_LIMIT:
+            raise HTTPException(
+                status_code=400, detail=f"limit debe estar entre 1 y {_MAX_SEARCH_LIMIT}"
+            )
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset no puede ser negativo")
+        term = None if name is None else _normalize_slug(name, "name")
+
+        async with self._new_client() as client:
+            if term is None:
+                params = {"limit": limit, "offset": offset}
+                payload = await self._get_json(client, "/pokemon", params)
+                count, names = _transform(_to_listing, payload)
+            else:
+                params = {"limit": _ALL_POKEMON_LIMIT, "offset": 0}
+                payload = await self._get_json(client, "/pokemon", params)
+                _, all_names = _transform(_to_listing, payload)
+                matches = [candidate for candidate in all_names if term in candidate]
+                count, names = len(matches), matches[offset : offset + limit]
+
+            pokemons = await asyncio.gather(
+                *(self._fetch_pokemon(client, pokemon_name) for pokemon_name in names)
+            )
+
+        results = [
+            {key: pokemon[key] for key in ("id", "name", "sprite", "types")}
+            for pokemon in pokemons
+        ]
+        return {"count": count, "results": results}
+
+    async def get_pokemon_by_type(self, type_name: str) -> list[dict[str, Any]]:
+        """Obtiene todos los Pokémon de un tipo. Lanza 400 si no es válido y 404 si no existe."""
+        slug = _normalize_slug(type_name, "type_name")
+        async with self._new_client() as client:
+            payload = await self._get_json(client, f"/type/{slug}")
+        return _transform(_to_type_members, payload)
 
 
 # Instancia única de la aplicación.
