@@ -88,6 +88,7 @@ _Pendiente._
 - **Arranque:** las tablas se crean en el `lifespan` de FastAPI, porque `@app.on_event` está obsoleto.
 - **`SECRET_KEY` sin valor por defecto:** la app no arranca sin ella, para no funcionar nunca con una clave insegura.
 - **Versiones fijadas:** `bcrypt==4.0.1`, porque `passlib` 1.7.4 da avisos con `bcrypt` 4.1+ y errores con la 5.x.
+- **Logging:** los logs van a `pokedex_api.log` (excluido de Git) y a la consola, con el nivel de `LOG_LEVEL`. Se registran método, path, status y duración de cada petición y los errores de validación. Por seguridad no se registra la query ni el valor recibido en un error de validación, porque podrían contener datos sensibles.
 - **Tests:** además de los ficheros de la estructura del enunciado, `tests/test_api.py` reúne tests transversales y `tests/test_models.py` prueba las reglas de la base de datos.
 
 ## Decisiones de Seguridad
