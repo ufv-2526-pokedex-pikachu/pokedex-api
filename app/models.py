@@ -100,7 +100,7 @@ class UserCreate(SQLModel):
 
     username: str = Field(min_length=3, max_length=50)
     email: str = Field(max_length=254)
-    password: str = Field(max_length=72)  # bcrypt ignora lo que pase de 72 bytes
+    password: str
 
     @field_validator("email")
     @classmethod
@@ -113,11 +113,14 @@ class UserCreate(SQLModel):
     @field_validator("password")
     @classmethod
     def validar_password(cls, value: str) -> str:
-        """Mínimo 8 caracteres, al menos 1 mayúscula y 1 número."""
+        """Mínimo 8 caracteres, al menos 1 mayúscula y 1 número; máximo 72 bytes."""
         if len(value) < 8 or not re.search(r"[A-Z]", value) or not re.search(r"\d", value):
             raise ValueError(
                 "La contraseña necesita al menos 8 caracteres, 1 mayúscula y 1 número"
             )
+        # bcrypt ignora lo que pasa de 72 bytes (no caracteres: la ñ ocupa 2).
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede ocupar más de 72 bytes")
         return value
 
 

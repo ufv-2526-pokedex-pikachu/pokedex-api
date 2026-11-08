@@ -89,7 +89,14 @@ def test_register_weak_password_returns_422(client, password):
     assert response.status_code == 422
 
 
-@pytest.mark.parametrize("email", ["sin-arroba.com", "a@b", "con espacio@poke.com"])
+def test_register_password_over_72_bytes_returns_422(client):
+    """bcrypt solo usa 72 bytes: se rechaza lo que pase, contando bytes y no caracteres."""
+    password = "Pikachu1" + "ñ" * 33  # 41 caracteres, pero 74 bytes
+    response = client.post(REGISTER, json={**NEW_USER, "password": password})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("email",["sin-arroba.com", "a@b", "con espacio@poke.com"])
 def test_register_invalid_email_returns_422(client, email):
     """El email se valida con regex."""
     response = client.post(REGISTER, json={**NEW_USER, "email": email})
