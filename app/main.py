@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.database import create_db_and_tables
 from app.limiter import limiter, rate_limit_exceeded_handler
+from app.routers import auth
 
 
 @asynccontextmanager
@@ -39,6 +40,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
     max_age=3600,
 )
+
+app.include_router(auth.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Comprobar que la API está viva")
