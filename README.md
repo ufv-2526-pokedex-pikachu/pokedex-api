@@ -8,7 +8,7 @@ API REST de Pokédex personal hecha con FastAPI. Consume la [PokeAPI](https://po
 ## Equipo
 | Miembro | Usuario Git | Partes desarrolladas |
 |---|---|---|
-| Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests) |
+| Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests); integración continua; autenticación JWT con refresh token y sus tests |
 | Alejandro Fernández Pérez | [@aferperez3110-ux](https://github.com/aferperez3110-ux) | — |
 | _(pendiente)_ | — | — |
 
@@ -70,7 +70,16 @@ Tablero del proyecto: https://github.com/orgs/ufv-2526-pokedex-pikachu/projects/
 **Reglas de las ramas.** Nadie hace `push` directo a `main` ni a `develop`: todo entra por *pull request* con al menos una aprobación de otro miembro y la integración continua en verde. La organización usa el plan gratuito de GitHub, que no permite proteger ramas en repositorios privados (la API responde *"Upgrade to GitHub Pro or make this repository public to enable this feature"*), así que el equipo cumple esta regla por disciplina. El historial de *pull requests* lo demuestra.
 
 ## Endpoints
-_Pendiente._
+
+### Autenticación (`/api/v1/auth`)
+| Método | Ruta | Auth | Descripción | Respuestas |
+|---|---|---|---|---|
+| POST | `/register` | No | Registra un usuario (JSON: `username`, `email`, `password`) | 201, 409 duplicado, 422 datos no válidos |
+| POST | `/login` | No | Formulario `username` + `password`; devuelve `access_token` (24 h) y `refresh_token` (7 días) | 200, 401 |
+| POST | `/refresh` | No | JSON `{"refresh_token": …}`; devuelve un par de tokens nuevo (bonus) | 200, 401 |
+| GET | `/me` | Bearer | Datos del usuario del token | 200, 401 |
+
+En `/docs`, pulsa **Authorize**, escribe tu usuario y contraseña y Swagger enviará el token en cada petición.
 
 ## Decisiones de Diseño
 
@@ -88,10 +97,22 @@ _Pendiente._
 - **Arranque:** las tablas se crean en el `lifespan` de FastAPI, porque `@app.on_event` está obsoleto.
 - **`SECRET_KEY` sin valor por defecto:** la app no arranca sin ella, para no funcionar nunca con una clave insegura.
 - **Versiones fijadas:** `bcrypt==4.0.1`, porque `passlib` 1.7.4 da avisos con `bcrypt` 4.1+ y errores con la 5.x.
-- **Tests:** además de los ficheros de la estructura del enunciado, `tests/test_api.py` reúne tests transversales y `tests/test_models.py` prueba las reglas de la base de datos.
+- **Tests:** el enunciado pide `tests/test_api.py` con al menos 15 tests, pero su estructura de carpetas reparte los tests en `test_auth.py`, `test_pokedex.py` y `test_pokeapi_service.py`. Seguimos la estructura: cada bloque tiene su fichero y los 15 se cuentan entre todos. `tests/test_api.py` reúne los tests transversales y `tests/test_models.py` prueba las reglas de la base de datos.
+- **Schemas:** `UserCreate`, `UserRead`, `Token` y `RefreshRequest` están en `app/models.py`, junto a las tablas, porque la estructura del enunciado no tiene un fichero de schemas.
+- **Login por formulario** (`OAuth2PasswordRequestForm`) y no por JSON, para que funcione el botón *Authorize* de Swagger.
+- **Usuario o email duplicado → 409 Conflict:** el recurso ya existe; no es un error de formato (422).
 
 ## Decisiones de Seguridad
-_Pendiente._
+- **Contraseñas:** se guardan solo como hash bcrypt (`passlib`), nunca en claro. La API nunca devuelve la contraseña ni su hash.
+- **Política de contraseñas:** 8 caracteres o más, al menos 1 mayúscula y 1 número (422 si no se cumple). El email se valida con regex.
+- **JWT:** firmados con HS256 y la `SECRET_KEY` del entorno (nunca en el código). Llevan `sub`, `user_id`, `iat`, `exp` y `type`. El token de acceso dura 24 h y el refresh token 7 días.
+- **Tipos de token:** un refresh token no abre endpoints protegidos y un token de acceso no sirve para `/refresh`.
+- **Sin revocación de tokens:** los JWT no se guardan en la base de datos, así que un refresh token ya usado sigue valiendo hasta que caduca (7 días), igual que un token de acceso hasta sus 24 h. Es el precio de no consultar la base de datos en cada petición. Desactivar al usuario (`is_active=False`) invalida todos sus tokens al momento. La revocación queda como mejora futura.
+- **Longitud de la contraseña:** máximo 72 bytes, porque bcrypt ignora el resto. Se cuentan bytes, no caracteres.
+- **Errores genéricos:** el login responde siempre "Usuario o contraseña incorrectos" y tarda lo mismo exista o no el usuario, para no revelar qué usernames están registrados.
+- **Usuarios inactivos** (`is_active=False`): no pueden hacer login y sus tokens dejan de valer.
+- **Registro de fallos:** cada fallo de autenticación se apunta en el log, sin escribir nunca el token ni la contraseña.
+- **HTTPS:** en producción la API debe servirse siempre por HTTPS, porque los tokens viajan en la cabecera `Authorization`.
 
 ## Mejoras Futuras
-_Pendiente._
+- **Revocación de refresh tokens:** guardar un identificador (`jti`) de cada refresh token y anular el anterior al renovarlo (rotación), o mantener una lista de tokens revocados.

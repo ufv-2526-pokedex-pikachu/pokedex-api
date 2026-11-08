@@ -6,9 +6,11 @@ Cambios respecto al enunciado (documentados en README → «Otras decisiones»):
 - `TeamMember.pokedex_entry` permite llegar desde un miembro a su entrada de la Pokédex.
 """
 
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from pydantic import field_validator
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -85,3 +87,62 @@ class TeamMember(SQLModel, table=True):
     # Relaciones
     team: Team = Relationship(back_populates="members")
     pokedex_entry: PokedexEntry = Relationship()
+
+
+# --- Schemas de la API (no son tablas: validan lo que entra y lo que sale) ---
+
+# Algo@algo.dominio, sin espacios; la verificación real sería mandar un correo.
+_EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+class UserCreate(SQLModel):
+    """Datos para registrarse."""
+
+    username: str = Field(min_length=3, max_length=50)
+    email: str = Field(max_length=254)
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, value: str) -> str:
+        """El enunciado pide validar el email con regex."""
+        if not _EMAIL_PATTERN.fullmatch(value):
+            raise ValueError("El email no tiene un formato válido")
+        return value.lower()
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, value: str) -> str:
+        """Mínimo 8 caracteres, al menos 1 mayúscula y 1 número; máximo 72 bytes."""
+        if len(value) < 8 or not re.search(r"[A-Z]", value) or not re.search(r"\d", value):
+            raise ValueError(
+                "La contraseña necesita al menos 8 caracteres, 1 mayúscula y 1 número"
+            )
+        # bcrypt ignora lo que pasa de 72 bytes (no caracteres: la ñ ocupa 2).
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("La contraseña no puede ocupar más de 72 bytes")
+        return value
+
+
+class UserRead(SQLModel):
+    """Datos públicos de un usuario (nunca incluye la contraseña ni su hash)."""
+
+    id: int
+    username: str
+    email: str
+    created_at: datetime
+    is_active: bool
+
+
+class Token(SQLModel):
+    """Respuesta del login y del refresh."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class RefreshRequest(SQLModel):
+    """Cuerpo de `POST /auth/refresh`."""
+
+    refresh_token: str
