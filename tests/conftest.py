@@ -2,7 +2,8 @@
 
 import os
 
-# Antes de importar la app: los tests nunca usan el .env ni la base de datos real.
+# Antes de importar la app: si faltan, valores de prueba para la clave y la base de datos.
+# El resto de variables se lee del .env si existe (ver README → Testing).
 os.environ.setdefault("SECRET_KEY", "clave-solo-para-tests")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 

@@ -107,10 +107,12 @@ _Pendiente._
 - **Política de contraseñas:** 8 caracteres o más, al menos 1 mayúscula y 1 número (422 si no se cumple). El email se valida con regex.
 - **JWT:** firmados con HS256 y la `SECRET_KEY` del entorno (nunca en el código). Llevan `sub`, `user_id`, `iat`, `exp` y `type`. El token de acceso dura 24 h y el refresh token 7 días.
 - **Tipos de token:** un refresh token no abre endpoints protegidos y un token de acceso no sirve para `/refresh`.
+- **Sin revocación de tokens:** los JWT no se guardan en la base de datos, así que un refresh token ya usado sigue valiendo hasta que caduca (7 días), igual que un token de acceso hasta sus 24 h. Es el precio de no consultar la base de datos en cada petición. Desactivar al usuario (`is_active=False`) invalida todos sus tokens al momento. La revocación queda como mejora futura.
+- **Longitud de la contraseña:** máximo 72 bytes, porque bcrypt ignora el resto. Se cuentan bytes, no caracteres.
 - **Errores genéricos:** el login responde siempre "Usuario o contraseña incorrectos" y tarda lo mismo exista o no el usuario, para no revelar qué usernames están registrados.
 - **Usuarios inactivos** (`is_active=False`): no pueden hacer login y sus tokens dejan de valer.
 - **Registro de fallos:** cada fallo de autenticación se apunta en el log, sin escribir nunca el token ni la contraseña.
 - **HTTPS:** en producción la API debe servirse siempre por HTTPS, porque los tokens viajan en la cabecera `Authorization`.
 
 ## Mejoras Futuras
-_Pendiente._
+- **Revocación de refresh tokens:** guardar un identificador (`jti`) de cada refresh token y anular el anterior al renovarlo (rotación), o mantener una lista de tokens revocados.
