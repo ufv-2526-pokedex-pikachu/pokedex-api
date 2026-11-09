@@ -114,6 +114,10 @@ class PokeAPIService:
         self._cache_ttl = cache_ttl
         self._cache: dict[str, tuple[float, Any]] = {}
 
+    def clear_cache(self) -> None:
+        """Vacía la caché (los tests la vacían entre uno y otro para que no se mezclen)."""
+        self._cache.clear()
+
     def _read_cache(self, key: str) -> Any | None:
         """Devuelve la respuesta guardada, o `None` si no existe o ha caducado."""
         entry = self._cache.get(key)

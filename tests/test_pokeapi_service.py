@@ -469,5 +469,15 @@ async def test_cache_full_discards_oldest_entry(cached_service, api, monkeypatch
     assert first.call_count == 2
 
 
+async def test_clear_cache_forces_new_call(cached_service, api):
+    route = api.get("/pokemon/25").respond(json=pokemon_payload())
+
+    await cached_service.get_pokemon(25)
+    cached_service.clear_cache()
+    await cached_service.get_pokemon(25)
+
+    assert route.call_count == 2
+
+
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service

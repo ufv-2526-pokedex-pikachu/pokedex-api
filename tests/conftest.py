@@ -18,12 +18,19 @@ from app.database import get_session  # noqa: E402
 from app.limiter import limiter  # noqa: E402
 from app.models import User  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.pokeapi_service import pokeapi_service  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def reset_rate_limits():
     """Reinicia los contadores en cada test para que los límites no se acumulen entre ellos."""
     limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def clear_pokeapi_cache():
+    """Vacía la caché de PokeAPI en cada test, para que una respuesta simulada no pase a otro."""
+    pokeapi_service.clear_cache()
 
 
 @pytest.fixture
