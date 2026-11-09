@@ -377,3 +377,39 @@ async def test_get_pokemon_by_type_unexpected_url_returns_502(service, api):
 
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service
+
+
+SPRITE_URL = "https://img.test/sprites/25.png"
+
+
+async def test_get_sprite_returns_image_bytes(service, caplog):
+    with respx.mock as router, caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        router.get(SPRITE_URL).respond(content=b"bytes-de-imagen")
+        assert await service.get_sprite(SPRITE_URL) == b"bytes-de-imagen"
+
+    assert f"Sprite GET {SPRITE_URL} -> 200" in caplog.text
+
+
+@pytest.mark.parametrize("url", [None, "", "http://img.test/25.png", "file:///etc/passwd"])
+async def test_get_sprite_without_https_url_returns_none_without_calling(service, url):
+    """Sin URL o sin https no se descarga nada (respx falla si se intenta salir a la red)."""
+    with respx.mock:
+        assert await service.get_sprite(url) is None
+
+
+@pytest.mark.parametrize(
+    "side_effect",
+    [httpx.Response(404), httpx.Response(500), httpx.ConnectError("sin red"), httpx.ReadTimeout("lento")],
+)
+async def test_get_sprite_failure_returns_none(service, side_effect):
+    """Si falla la descarga, la ficha se hará sin imagen: nunca un error."""
+    with respx.mock as router:
+        router.get(SPRITE_URL).mock(side_effect=[side_effect])
+        assert await service.get_sprite(SPRITE_URL) is None
+
+
+async def test_get_sprite_too_large_returns_none(service, monkeypatch):
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    with respx.mock as router:
+        router.get(SPRITE_URL).respond(content=b"x" * 11)
+        assert await service.get_sprite(SPRITE_URL) is None

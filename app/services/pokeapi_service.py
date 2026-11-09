@@ -22,6 +22,8 @@ _MAX_CONNECTIONS = 20
 _MAX_SEARCH_LIMIT = 100
 # PokeAPI no filtra por texto: para buscar por nombre hay que pedir la lista completa.
 _ALL_POKEMON_LIMIT = 100_000
+# Un sprite de PokeAPI ocupa unos pocos KB: más de esto no es un sprite normal.
+_MAX_SPRITE_BYTES = 1_000_000
 
 
 def _elapsed_ms(start: float) -> float:
@@ -206,6 +208,26 @@ class PokeAPIService:
         async with self._new_client() as client:
             payload = await self._get_json(client, f"/type/{slug}")
         return _transform(_to_type_members, payload)
+
+    async def get_sprite(self, url: str | None) -> bytes | None:
+        """Descarga la imagen de un sprite para la ficha en PDF.
+
+        Devuelve `None` en vez de lanzar un error si no hay URL, si no es `https`, si la
+        descarga falla o si la imagen es demasiado grande: la ficha se genera sin imagen.
+        """
+        if not url or not url.startswith("https://"):
+            return None
+        start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                response = await client.get(url)
+        except httpx.HTTPError as exc:
+            logger.warning("Sprite GET %s -> error: %r (%.0f ms)", url, exc, _elapsed_ms(start))
+            return None
+        logger.info("Sprite GET %s -> %s (%.0f ms)", url, response.status_code, _elapsed_ms(start))
+        if not response.is_success or len(response.content) > _MAX_SPRITE_BYTES:
+            return None
+        return response.content
 
 
 # Instancia única de la aplicación.
