@@ -103,6 +103,32 @@ def _to_type_members(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _to_evolution_chain_id(data: dict[str, Any]) -> int | None:
+    """ID de la cadena de evolución de una especie (va al final de su URL), o `None` si no tiene.
+
+    Solo se usa el número: la petición se hace siempre a nuestra BASE_URL, nunca a la URL
+    que venga en la respuesta.
+    """
+    chain = data["evolution_chain"]
+    if chain is None:
+        return None
+    return int(chain["url"].rstrip("/").rsplit("/", 1)[-1])
+
+
+def _to_evolution_names(data: dict[str, Any]) -> list[str]:
+    """Nombres de la cadena de evolución, por etapas (recorrido en anchura del árbol `chain`).
+
+    Ej.: Eevee → ["eevee", "vaporeon", "jolteon", "flareon", …].
+    """
+    names: list[str] = []
+    pending = [data["chain"]]
+    while pending:
+        node = pending.pop(0)
+        names.append(node["species"]["name"])
+        pending.extend(node["evolves_to"])
+    return names
+
+
 class PokeAPIService:
     """Cliente REST de PokeAPI. Todos los fallos se convierten en `HTTPException`."""
 
@@ -203,6 +229,22 @@ class PokeAPIService:
         async with self._new_client() as client:
             payload = await self._get_json(client, f"/pokemon-species/{slug}")
         return _transform(_to_species, payload)
+
+    async def get_evolution_chain(self, identifier: str | int) -> list[str]:
+        """Nombres de la cadena de evolución de un Pokémon, en orden (usada por la API v2).
+
+        Pide la especie y después su cadena (`/evolution-chain/{id}`). Las dos pasan por la
+        caché, así que los Pokémon de una misma cadena solo la piden una vez. Si la especie
+        no tiene cadena, devuelve solo su nombre. Mismos errores que `get_species`.
+        """
+        slug = _normalize_slug(identifier, "identifier")
+        async with self._new_client() as client:
+            species = await self._get_json(client, f"/pokemon-species/{slug}")
+            chain_id = _transform(_to_evolution_chain_id, species)
+            if chain_id is None:
+                return [_transform(lambda data: data["name"], species)]
+            payload = await self._get_json(client, f"/evolution-chain/{chain_id}")
+        return _transform(_to_evolution_names, payload)
 
     async def search_pokemon(
         self, limit: int = 20, offset: int = 0, name: str | None = None
