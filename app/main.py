@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.database import create_db_and_tables
 from app.limiter import limiter, rate_limit_exceeded_handler
-from app.routers import auth, pokedex
+from app.routers import auth, pokedex, teams
 
 
 @asynccontextmanager
@@ -43,6 +43,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(pokedex.router, prefix="/api/v1")
+app.include_router(teams.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Comprobar que la API está viva")

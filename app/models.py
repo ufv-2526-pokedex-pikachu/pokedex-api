@@ -10,8 +10,9 @@ Cambios respecto al enunciado (documentados en README → «Otras decisiones»):
 
 import re
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
+from pydantic import Field as PydanticField
 from pydantic import field_validator
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
@@ -204,3 +205,56 @@ class PokedexStats(SQLModel):
     completion_percentage: float
     most_common_type: Optional[str] = None
     capture_streak_days: int
+
+
+# --- Schemas de equipos ---
+
+MAX_TEAM_SIZE = 6
+
+
+class TeamCreate(SQLModel):
+    """Cuerpo de `POST /teams`.
+
+    `pokemon_ids` son IDs de PokeAPI que tienen que estar en la Pokédex del usuario.
+    Su orden es la posición en el equipo (1-6).
+    """
+
+    name: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+    pokemon_ids: List[Annotated[int, PydanticField(ge=1)]] = Field(
+        min_length=1, max_length=MAX_TEAM_SIZE
+    )
+
+    @field_validator("pokemon_ids")
+    @classmethod
+    def validar_sin_repetidos(cls, value: List[int]) -> List[int]:
+        """Un mismo Pokémon de la Pokédex no puede ocupar dos puestos del equipo."""
+        if len(set(value)) != len(value):
+            raise ValueError("pokemon_ids no puede tener Pokémon repetidos")
+        return value
+
+
+class TeamUpdate(TeamCreate):
+    """Cuerpo de `PUT /teams/{team_id}`: sustituye el equipo entero (nombre, descripción y miembros)."""
+
+
+class TeamMemberRead(SQLModel):
+    """Un miembro del equipo, con los datos de su entrada de la Pokédex."""
+
+    position: int
+    pokedex_entry_id: int
+    pokemon_id: int
+    pokemon_name: str
+    pokemon_sprite: str
+    nickname: Optional[str] = None
+
+
+class TeamRead(SQLModel):
+    """Equipo tal como lo devuelve la API, con los miembros ordenados por posición."""
+
+    id: int
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    pokemon_ids: List[int]
+    members: List[TeamMemberRead]
