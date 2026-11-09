@@ -8,7 +8,7 @@ API REST de Pokédex personal hecha con FastAPI. Consume la [PokeAPI](https://po
 ## Equipo
 | Miembro | Usuario Git | Partes desarrolladas |
 |---|---|---|
-| Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests); integración continua; autenticación JWT con refresh token y sus tests |
+| Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests); integración continua; autenticación JWT con refresh token y sus tests; Pokédex personal (CRUD, filtros, ordenación, paginación y exportación CSV/PDF) |
 | Alejandro Fernández Pérez | [@aferperez3110-ux](https://github.com/aferperez3110-ux) | — |
 | Rodrigo Martín Martín | [@Rodrigomartiin](https://github.com/Rodrigomartiin) | Equipos de batalla (crear, listar, actualizar y exportar en PDF), servicio de PDF (`pdf_service.py`) y sus tests |
 
@@ -81,6 +81,17 @@ Tablero del proyecto: https://github.com/orgs/ufv-2526-pokedex-pikachu/projects/
 
 En `/docs`, pulsa **Authorize**, escribe tu usuario y contraseña y Swagger enviará el token en cada petición.
 
+### Pokédex personal (`/api/v1/pokedex`)
+Todos requieren token (Bearer). Cada usuario solo ve y modifica sus entradas.
+
+| Método | Ruta | Descripción | Respuestas |
+|---|---|---|---|
+| POST | _(raíz)_ | Añade un Pokémon (JSON: `pokemon_id`, y opcionales `nickname`, `is_captured`, `capture_date`, `notes`, `favorite`). Comprueba en PokeAPI que existe y guarda su nombre, sprite y tipos | 201, 404 no existe en PokeAPI, 409 ya está, 422 |
+| GET | _(raíz)_ | Lista mi Pokédex. Filtros `captured`, `favorite`; orden `sort=pokemon_id\|capture_date\|pokemon_name` y `order=asc\|desc`; paginación `limit` (1-100, 20 por defecto) y `offset` | 200, 422 |
+| PATCH | `/{entry_id}` | Cambia solo los campos enviados (`is_captured`, `capture_date`, `nickname`, `notes`, `favorite`) | 200, 404, 422 |
+| DELETE | `/{entry_id}` | Borra la entrada | 204, 404, 409 si está en un equipo |
+| GET | `/export` | Descarga la Pokédex: `format=csv\|pdf` (csv por defecto), filtros `captured` y `favorite` | 200 archivo, 422 |
+
 ### Equipos de batalla (`/api/v1/teams`)
 Todos requieren token (`Bearer`). Un equipo tiene de 1 a 6 Pokémon de la Pokédex del usuario.
 
@@ -101,7 +112,7 @@ Se aplica con `slowapi`, con una instancia única en `app/limiter.py`. Se cuenta
 | Tipo de endpoint | Límite | Constante |
 |---|---|---|
 | Registro | 5/hora | `LIMIT_REGISTER` |
-| Login | 10/minuto | `LIMIT_LOGIN` |
+| Login y refresh | 10/minuto | `LIMIT_LOGIN` |
 | Llaman a PokeAPI | 30/minuto | `LIMIT_POKEAPI` |
 | Resto de autenticados | 100/minuto | `LIMIT_AUTHENTICATED` |
 
@@ -126,11 +137,20 @@ _Pendiente._
 - **Schemas:** `UserCreate`, `UserRead`, `Token` y `RefreshRequest` están en `app/models.py`, junto a las tablas, porque la estructura del enunciado no tiene un fichero de schemas.
 - **Login por formulario** (`OAuth2PasswordRequestForm`) y no por JSON, para que funcione el botón *Authorize* de Swagger.
 - **Usuario o email duplicado → 409 Conflict:** el recurso ya existe; no es un error de formato (422).
-- **Equipos, `pokemon_ids`:** son IDs de PokeAPI, como en el enunciado (`[1, 4, 7, 25, 133, 143]`). Cada uno se busca en la Pokédex del usuario y el miembro guarda el enlace a esa entrada (`TeamMember.pokedex_entry_id`). La posición es el orden de la lista.
-- **Equipos, errores:** si la lista está vacía, pasa de 6, repite un Pokémon o tiene un ID < 1, se responde 422, porque el cuerpo no es válido. Si el cuerpo es válido pero algún Pokémon no está en tu Pokédex, se responde 400 indicando cuáles faltan. Los equipos de otro usuario dan 404, para no revelar que existen.
-- **Equipos, `PUT`:** sustituye el equipo completo (nombre, descripción y miembros), como manda la semántica de PUT. Los miembros antiguos se borran en cascada, pero las entradas de la Pokédex no se tocan. Si algún Pokémon no es válido, el equipo no cambia.
-- **Equipos, «estadísticas combinadas» del PDF:** para cada stat base de PokeAPI (HP, ataque, defensa, ataque especial, defensa especial y velocidad) se calculan la **suma** y la **media** de los miembros, y además el total de todas las stats. Los datos se piden a PokeAPI en el momento de exportar (en paralelo), así que siempre están al día.
-- **PDF:** se genera con `reportlab` en `app/services/pdf_service.py`, que solo dibuja y nunca llama a la red, para poder reutilizar la ficha (`draw_pokemon_card`) y probarla sin PokeAPI. El PDF del equipo tiene 2 páginas: el resumen con las estadísticas y las 6 fichas en una cuadrícula.
+- **Pokédex:**
+  - **Tipos del Pokémon:** se guardan en `PokedexEntry.pokemon_types` como texto separado por comas (`"fire,flying"`), copiados de PokeAPI al añadirlo. Así las estadísticas no llaman a PokeAPI. Es un campo añadido al modelo del enunciado.
+  - **Sin duplicados:** además de comprobarlo antes de insertar (409), la tabla tiene una restricción única `(owner_id, pokemon_id)`, que lo garantiza aunque lleguen dos peticiones a la vez.
+  - **Entradas de otro usuario → 404, no 403:** así no se revela que existen.
+  - **Fecha de captura:** si se marca como capturado sin fecha, se pone la actual; si se desmarca, se borra la fecha.
+  - **Borrar un Pokémon que está en un equipo → 409:** no se deja el equipo con un hueco; primero hay que sacarlo del equipo.
+  - **Exportación:** por defecto incluye toda la Pokédex del usuario; `captured` y `favorite` la filtran. El enunciado dice "todos los Pokémon capturados" y también "opción de filtrar por capturados", así que el filtro es opcional. En el CSV, los valores que empiezan por `=`, `+`, `-` o `@` llevan un `'` delante para que Excel no los ejecute como fórmulas (inyección CSV).
+  - **Rate limiting:** el alta llama a PokeAPI (30/min); el resto solo usa la base de datos (100/min).
+- **Equipos:**
+  - **`pokemon_ids`:** son IDs de PokeAPI, como en el enunciado (`[1, 4, 7, 25, 133, 143]`). Cada uno se busca en la Pokédex del usuario y el miembro guarda el enlace a esa entrada (`TeamMember.pokedex_entry_id`). La posición es el orden de la lista.
+  - **Errores:** si la lista está vacía, pasa de 6, repite un Pokémon o tiene un ID < 1, se responde 422, porque el cuerpo no es válido. Si el cuerpo es válido pero algún Pokémon no está en tu Pokédex, se responde 400 indicando cuáles faltan. Los equipos de otro usuario dan 404, para no revelar que existen.
+  - **`PUT`:** sustituye el equipo completo (nombre, descripción y miembros), como manda la semántica de PUT. Los miembros antiguos se borran en cascada, pero las entradas de la Pokédex no se tocan. Si algún Pokémon no es válido, el equipo no cambia.
+  - **«Estadísticas combinadas» del PDF:** para cada stat base de PokeAPI (HP, ataque, defensa, ataque especial, defensa especial y velocidad) se calculan la **suma** y la **media** de los miembros, y además el total de todas las stats. Los datos se piden a PokeAPI en el momento de exportar (en paralelo), así que siempre están al día.
+  - **PDF:** se genera con `reportlab` en `app/services/pdf_service.py`, que solo dibuja y nunca llama a la red, para poder reutilizar la ficha (`draw_pokemon_card`) y probarla sin PokeAPI. El PDF del equipo tiene 2 páginas: el resumen con las estadísticas y las 6 fichas en una cuadrícula.
 
 ## Decisiones de Seguridad
 - **Contraseñas:** se guardan solo como hash bcrypt (`passlib`), nunca en claro. La API nunca devuelve la contraseña ni su hash.
