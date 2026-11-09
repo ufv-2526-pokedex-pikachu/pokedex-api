@@ -196,6 +196,17 @@ class PokedexEntryRead(SQLModel):
 PokedexSort = Literal["pokemon_id", "capture_date", "pokemon_name"]
 
 
+class PokedexStats(SQLModel):
+    """Respuesta de `GET /pokedex/stats`, con los campos exactos del enunciado."""
+
+    total_pokemon: int
+    captured: int
+    favorites: int
+    completion_percentage: float
+    most_common_type: Optional[str] = None
+    capture_streak_days: int
+
+
 # --- Schemas de equipos ---
 
 MAX_TEAM_SIZE = 6

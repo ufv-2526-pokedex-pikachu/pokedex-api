@@ -10,7 +10,7 @@ API REST de Pokédex personal hecha con FastAPI. Consume la [PokeAPI](https://po
 |---|---|---|
 | Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests); integración continua; autenticación JWT con refresh token y sus tests; Pokédex personal (CRUD, filtros, ordenación, paginación y exportación CSV/PDF) |
 | Alejandro Fernández Pérez | [@aferperez3110-ux](https://github.com/aferperez3110-ux) | — |
-| Rodrigo Martín Martín | [@Rodrigomartiin](https://github.com/Rodrigomartiin) | Equipos de batalla (crear, listar, actualizar y exportar en PDF), servicio de PDF (`pdf_service.py`) y sus tests |
+| Rodrigo Martín Martín | [@Rodrigomartiin](https://github.com/Rodrigomartiin) | Equipos de batalla (crear, listar, actualizar y exportar en PDF), servicio de PDF (`pdf_service.py`), estadísticas de la Pokédex (`/pokedex/stats`) y sus tests |
 
 ## Instalación
 Requisitos: Python 3.12, Git y [uv](https://docs.astral.sh/uv/) (recomendado).
@@ -92,6 +92,7 @@ Todos requieren token (Bearer). Cada usuario solo ve y modifica sus entradas.
 | PATCH | `/{entry_id}` | Cambia solo los campos enviados (`is_captured`, `capture_date`, `nickname`, `notes`, `favorite`) | 200, 404, 422 |
 | DELETE | `/{entry_id}` | Borra la entrada | 204, 404, 409 si está en un equipo |
 | GET | `/export` | Descarga la Pokédex: `format=csv\|pdf` (csv por defecto), filtros `captured` y `favorite` | 200 archivo, 422 |
+| GET | `/stats` | Estadísticas de mi Pokédex: `total_pokemon`, `captured`, `favorites`, `completion_percentage`, `most_common_type` y `capture_streak_days` (ver «Otras decisiones») | 200 |
 
 ### Equipos de batalla (`/api/v1/teams`)
 Todos requieren token (`Bearer`). Un equipo tiene de 1 a 6 Pokémon de la Pokédex del usuario.
@@ -146,6 +147,13 @@ _Pendiente._
   - **Borrar un Pokémon que está en un equipo → 409:** no se deja el equipo con un hueco; primero hay que sacarlo del equipo.
   - **Exportación:** por defecto incluye toda la Pokédex del usuario; `captured` y `favorite` la filtran. El enunciado dice "todos los Pokémon capturados" y también "opción de filtrar por capturados", así que el filtro es opcional. En el CSV, los valores que empiezan por `=`, `+`, `-` o `@` llevan un `'` delante para que Excel no los ejecute como fórmulas (inyección CSV).
   - **Rate limiting:** el alta llama a PokeAPI (30/min); el resto solo usa la base de datos (100/min).
+- **Estadísticas (`GET /pokedex/stats`):** el enunciado da el ejemplo `89 / 150 = 59,3 %`, así que se interpreta así:
+  - `total_pokemon`: entradas de **mi** Pokédex (no los más de 1000 Pokémon que existen). `captured` y `favorites`: las que tienen `is_captured` y `favorite`.
+  - `completion_percentage`: `captured / total_pokemon × 100`, redondeado a 1 decimal; `0.0` si la Pokédex está vacía.
+  - `most_common_type`: el tipo que más se repite entre todas mis entradas, usando los tipos guardados en `pokemon_types` (un `fire,flying` cuenta para los dos). Si hay empate, gana el primero en orden alfabético, para que el resultado no cambie de una llamada a otra. Es `null` si no hay tipos.
+  - `capture_streak_days`: días **seguidos** con al menos una captura (según `capture_date`, por días UTC) que terminan hoy o ayer. Si hoy aún no has capturado, la racha de ayer sigue viva; si la última captura es de antes de ayer, la racha es 0. Varias capturas el mismo día cuentan como un día.
+  - El cálculo está en `app/services/stats_service.py` como función pura (recibe las entradas y la fecha de hoy), para probarlo con fechas fijas. No llama a PokeAPI: límite de 100/min.
+  - La ruta `/stats` va en `pokedex.py` antes de las rutas `/{entry_id}`, como `/export`, para que nunca se interprete `stats` como un id.
 - **Equipos:**
   - **`pokemon_ids`:** son IDs de PokeAPI, como en el enunciado (`[1, 4, 7, 25, 133, 143]`). Cada uno se busca en la Pokédex del usuario y el miembro guarda el enlace a esa entrada (`TeamMember.pokedex_entry_id`). La posición es el orden de la lista.
   - **Errores:** si la lista está vacía, pasa de 6, repite un Pokémon o tiene un ID < 1, se responde 422, porque el cuerpo no es válido. Si el cuerpo es válido pero algún Pokémon no está en tu Pokédex, se responde 400 indicando cuáles faltan. Los equipos de otro usuario dan 404, para no revelar que existen.
