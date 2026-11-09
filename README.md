@@ -9,7 +9,7 @@ API REST de Pokédex personal hecha con FastAPI. Consume la [PokeAPI](https://po
 | Miembro | Usuario Git | Partes desarrolladas |
 |---|---|---|
 | Adrián Zúñiga García | [@adrianzuga](https://github.com/adrianzuga) | Esqueleto inicial y estructura base (config, base de datos, modelos, `/health` y sus tests); integración continua; autenticación JWT con refresh token y sus tests; Pokédex personal (CRUD, filtros, ordenación, paginación y exportación CSV/PDF) |
-| Alejandro Fernández Pérez | [@aferperez3110-ux](https://github.com/aferperez3110-ux) | — |
+| Alejandro Fernández Pérez | [@aferperez3110-ux](https://github.com/aferperez3110-ux) | Cliente de PokeAPI y su caché, rate limiting y CORS, logging, búsqueda, detalle y ficha `/card` de Pokémon, con sus tests |
 | Rodrigo Martín Martín | [@Rodrigomartiin](https://github.com/Rodrigomartiin) | Equipos de batalla (crear, listar, actualizar y exportar en PDF), servicio de PDF (`pdf_service.py`) y sus tests |
 
 ## Instalación
@@ -81,6 +81,17 @@ Tablero del proyecto: https://github.com/orgs/ufv-2526-pokedex-pikachu/projects/
 
 En `/docs`, pulsa **Authorize**, escribe tu usuario y contraseña y Swagger enviará el token en cada petición.
 
+### Pokémon (`/api/v1/pokemon`)
+Proxy a PokeAPI. Todos requieren token (`Bearer`) y tienen un límite de 30/minuto, porque llaman a PokeAPI.
+
+| Método | Ruta | Descripción | Respuestas |
+|---|---|---|---|
+| GET | `/search` | Busca en PokeAPI. Filtro opcional `name` (parte del nombre, sin distinguir mayúsculas); paginación `limit` (1-100, 20 por defecto) y `offset`. Devuelve `count` (total de coincidencias) y `results` con la lista simplificada `{id, name, sprite, types}` | 200, 400 nombre no válido, 422 paginación no válida |
+| GET | `/{id_or_name}` | Detalle completo por ID o nombre: `stats`, `abilities`, `types`, `sprite` y `sprites`, además de `height` y `weight` | 200, 400, 404 no existe |
+| GET | `/{id_or_name}/card` | Descarga `<nombre>-card.pdf`, una ficha con el sprite, las estadísticas, los tipos, las habilidades y la descripción de la especie | 200 `application/pdf`, 400, 404 |
+
+Si PokeAPI falla, los tres responden 502, o 504 si no contesta a tiempo.
+
 ### Pokédex personal (`/api/v1/pokedex`)
 Todos requieren token (Bearer). Cada usuario solo ve y modifica sus entradas.
 
@@ -151,6 +162,13 @@ _Pendiente._
   - **`PUT`:** sustituye el equipo completo (nombre, descripción y miembros), como manda la semántica de PUT. Los miembros antiguos se borran en cascada, pero las entradas de la Pokédex no se tocan. Si algún Pokémon no es válido, el equipo no cambia.
   - **«Estadísticas combinadas» del PDF:** para cada stat base de PokeAPI (HP, ataque, defensa, ataque especial, defensa especial y velocidad) se calculan la **suma** y la **media** de los miembros, y además el total de todas las stats. Los datos se piden a PokeAPI en el momento de exportar (en paralelo), así que siempre están al día.
   - **PDF:** se genera con `reportlab` en `app/services/pdf_service.py`, que solo dibuja y nunca llama a la red, para poder reutilizar la ficha (`draw_pokemon_card`) y probarla sin PokeAPI. El PDF del equipo tiene 2 páginas: el resumen con las estadísticas y las 6 fichas en una cuadrícula.
+- **Pokémon:**
+  - **El detalle también exige token**, aunque el enunciado solo lo pide para la búsqueda y la ficha. Los tres endpoints consumen PokeAPI, un servicio externo y gratuito, así que solo los usan usuarios registrados y todos comparten el límite de 30/minuto.
+  - **Errores:** los del servicio de PokeAPI (400, 404, 502 y 504) llegan al cliente sin cambios. Una paginación no válida da 422, como en la Pokédex.
+  - **Orden de rutas:** `/search` se declara antes que `/{id_or_name}`; si no, "search" se tomaría como el nombre de un Pokémon. Hay un test que lo comprueba.
+  - **Ficha en PDF** (el enunciado deja elegir entre PDF e imagen): se genera con `reportlab`, en una página. Reutiliza `draw_pokemon_card` de `app/services/pdf_service.py`, la misma función que el PDF de equipos, a través de `build_pokemon_card_pdf`, que se añadió a ese archivo.
+  - **Sprite de la ficha:** lo descarga el servicio de PokeAPI (`get_sprite`), nunca reportlab por su cuenta, para que los tests lo simulen con respx. Solo acepta URLs `https` y hasta 1 MB. Si la descarga falla o los bytes no son una imagen, la ficha se genera sin imagen en vez de dar error.
+  - **Descripción de la ficha:** se pide la especie por el ID del Pokémon. Las formas especiales (por ejemplo, `charizard-mega-x`, con el ID 10034) no tienen especie con su ID: en ese caso la ficha sale sin descripción. Cualquier otro fallo de la especie da 502.
 
 ## Decisiones de Seguridad
 - **Contraseñas:** se guardan solo como hash bcrypt (`passlib`), nunca en claro. La API nunca devuelve la contraseña ni su hash.
