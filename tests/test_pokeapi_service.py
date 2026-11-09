@@ -408,8 +408,34 @@ async def test_get_sprite_failure_returns_none(service, side_effect):
         assert await service.get_sprite(SPRITE_URL) is None
 
 
-async def test_get_sprite_too_large_returns_none(service, monkeypatch):
+async def test_get_sprite_too_large_returns_none(service, monkeypatch, caplog):
     monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
-    with respx.mock as router:
+    with respx.mock as router, caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
         router.get(SPRITE_URL).respond(content=b"x" * 11)
         assert await service.get_sprite(SPRITE_URL) is None
+
+    assert "descartado: pasa de 10 bytes" in caplog.text
+
+
+async def test_get_sprite_stops_reading_when_over_limit(service, monkeypatch):
+    """Corta en cuanto pasa del tope: no sigue leyendo el resto de la respuesta."""
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    read = []
+
+    async def endless_body():
+        for _ in range(1000):
+            read.append(1)
+            yield b"x" * 8
+
+    with respx.mock as router:
+        router.get(SPRITE_URL).respond(stream=endless_body())
+        assert await service.get_sprite(SPRITE_URL) is None
+
+    assert len(read) == 2
+
+
+async def test_get_sprite_at_exact_limit_is_accepted(service, monkeypatch):
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    with respx.mock as router:
+        router.get(SPRITE_URL).respond(content=b"x" * 10)
+        assert await service.get_sprite(SPRITE_URL) == b"x" * 10

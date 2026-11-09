@@ -218,16 +218,28 @@ class PokeAPIService:
         if not url or not url.startswith("https://"):
             return None
         start = time.perf_counter()
+        chunks: list[bytes] = []
+        received = 0
         try:
             async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-                response = await client.get(url)
+                # Se lee por partes para cortar en cuanto pasa del tope, sin descargar el resto.
+                async with client.stream("GET", url) as response:
+                    if response.is_success:
+                        async for chunk in response.aiter_bytes():
+                            received += len(chunk)
+                            if received > _MAX_SPRITE_BYTES:
+                                logger.warning(
+                                    "Sprite GET %s -> descartado: pasa de %d bytes",
+                                    url,
+                                    _MAX_SPRITE_BYTES,
+                                )
+                                return None
+                            chunks.append(chunk)
         except httpx.HTTPError as exc:
             logger.warning("Sprite GET %s -> error: %r (%.0f ms)", url, exc, _elapsed_ms(start))
             return None
         logger.info("Sprite GET %s -> %s (%.0f ms)", url, response.status_code, _elapsed_ms(start))
-        if not response.is_success or len(response.content) > _MAX_SPRITE_BYTES:
-            return None
-        return response.content
+        return b"".join(chunks) if response.is_success else None
 
 
 # Instancia única de la aplicación.
