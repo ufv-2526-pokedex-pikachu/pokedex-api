@@ -38,6 +38,7 @@ Copia `.env.example` como `.env` y rellena los valores. El `.env` real nunca se 
 | `CORS_ORIGINS` | Orígenes permitidos (lista JSON) | `["http://localhost:3000"]` |
 | `POKEAPI_BASE_URL` | URL base de PokeAPI | `https://pokeapi.co/api/v2` |
 | `POKEAPI_TIMEOUT` | Tiempo máximo de espera a PokeAPI (s) | `10` |
+| `POKEAPI_CACHE_TTL` | Segundos que dura cada respuesta en caché (`0` la desactiva) | `3600` |
 | `LOG_LEVEL` | Nivel de log | `INFO` |
 | `RATE_LIMIT_ENABLED` | Activa o desactiva el rate limiting | `true` |
 
@@ -151,6 +152,7 @@ _Pendiente._
   - **`PUT`:** sustituye el equipo completo (nombre, descripción y miembros), como manda la semántica de PUT. Los miembros antiguos se borran en cascada, pero las entradas de la Pokédex no se tocan. Si algún Pokémon no es válido, el equipo no cambia.
   - **«Estadísticas combinadas» del PDF:** para cada stat base de PokeAPI (HP, ataque, defensa, ataque especial, defensa especial y velocidad) se calculan la **suma** y la **media** de los miembros, y además el total de todas las stats. Los datos se piden a PokeAPI en el momento de exportar (en paralelo), así que siempre están al día.
   - **PDF:** se genera con `reportlab` en `app/services/pdf_service.py`, que solo dibuja y nunca llama a la red, para poder reutilizar la ficha (`draw_pokemon_card`) y probarla sin PokeAPI. El PDF del equipo tiene 2 páginas: el resumen con las estadísticas y las 6 fichas en una cuadrícula.
+- **Caché de PokeAPI (bonus):** las respuestas correctas se guardan en memoria durante `POKEAPI_CACHE_TTL` segundos, porque sus datos casi no cambian y así se responde antes y se llama menos a un servicio público. Los errores no se guardan, para poder recuperarse en cuanto PokeAPI vuelva a responder. Guarda un máximo de 1000 respuestas, y se pierde al reiniciar y no se comparte entre procesos.
 
 ## Decisiones de Seguridad
 - **Contraseñas:** se guardan solo como hash bcrypt (`passlib`), nunca en claro. La API nunca devuelve la contraseña ni su hash.
