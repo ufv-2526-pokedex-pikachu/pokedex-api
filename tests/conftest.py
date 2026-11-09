@@ -15,8 +15,15 @@ from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 import app.models  # noqa: E402,F401  (registra las tablas)
 from app.auth import create_access_token, hash_password  # noqa: E402
 from app.database import get_session  # noqa: E402
+from app.limiter import limiter  # noqa: E402
 from app.models import User  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Reinicia los contadores en cada test para que los límites no se acumulen entre ellos."""
+    limiter.reset()
 
 
 @pytest.fixture
