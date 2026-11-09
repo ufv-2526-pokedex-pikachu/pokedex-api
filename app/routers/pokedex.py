@@ -23,9 +23,11 @@ from app.models import (
     PokedexEntryRead,
     PokedexEntryUpdate,
     PokedexSort,
+    PokedexStats,
     User,
 )
 from app.services.pokeapi_service import PokeAPIService, get_pokeapi_service
+from app.services.stats_service import compute_pokedex_stats
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +211,23 @@ def _to_pdf(rows: list[list[str]], username: str) -> bytes:
     ]))
     doc.build([title, table])
     return buffer.getvalue()
+
+
+# Ruta fija: va antes que las de /{entry_id}, como /export.
+@router.get("/stats", response_model=PokedexStats, summary="Ver las estadísticas de mi Pokédex")
+@limiter.limit(LIMIT_AUTHENTICATED)
+def get_stats(
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> PokedexStats:
+    """Totales, capturados, favoritos, % completado, tipo más común y racha de capturas.
+
+    Solo cuenta mis entradas. La racha son los días seguidos (en UTC) con al menos una
+    captura, terminando hoy o ayer.
+    """
+    entries = session.exec(_query_entries(session, current_user, None, None)).all()
+    return PokedexStats(**compute_pokedex_stats(entries, datetime.now(timezone.utc).date()))
 
 
 @router.patch(
