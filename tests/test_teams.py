@@ -291,6 +291,18 @@ def test_update_missing_team_returns_404(client, auth_headers, pokedex):
     assert response.status_code == 404
 
 
+def test_cannot_delete_pokedex_entry_used_in_team(client, auth_headers, pokedex):
+    """Integración con la Pokédex: un Pokémon que está en un equipo no se puede borrar (409)."""
+    team_id = create_team(client, auth_headers, [25, 1]).json()["id"]
+
+    response = client.delete(f"/api/v1/pokedex/{pokedex[25].id}", headers=auth_headers)
+
+    assert response.status_code == 409
+    team = client.get(TEAMS_URL, headers=auth_headers).json()[0]
+    assert team["id"] == team_id
+    assert team["pokemon_ids"] == [25, 1]
+
+
 # --- Autenticación ---
 
 
