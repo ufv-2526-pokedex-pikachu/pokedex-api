@@ -375,6 +375,110 @@ async def test_get_pokemon_by_type_unexpected_url_returns_502(service, api):
     assert exc.value.status_code == 502
 
 
+@pytest.fixture
+def cached_service() -> PokeAPIService:
+    """Servicio con caché activa, aunque la configuración la tenga desactivada."""
+    return PokeAPIService(cache_ttl=60)
+
+
+async def test_cache_repeated_request_calls_pokeapi_once(cached_service, api, caplog):
+    route = api.get("/pokemon/25").respond(json=pokemon_payload())
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        first = await cached_service.get_pokemon(25)
+        second = await cached_service.get_pokemon(25)
+
+    assert first == second
+    assert route.call_count == 1
+    assert f"{PokeAPIService.BASE_URL}/pokemon/25 -> caché" in caplog.text
+
+
+async def test_cache_uses_query_params_in_key(cached_service, api):
+    """Dos páginas distintas del listado no comparten respuesta."""
+    page_one = api.get("/pokemon", params={"limit": 1, "offset": 0}).respond(
+        json=listing_payload([])
+    )
+    page_two = api.get("/pokemon", params={"limit": 1, "offset": 1}).respond(
+        json=listing_payload([])
+    )
+
+    await cached_service.search_pokemon(limit=1, offset=0)
+    await cached_service.search_pokemon(limit=1, offset=1)
+
+    assert page_one.call_count == 1
+    assert page_two.call_count == 1
+
+
+async def test_cache_reuses_full_listing_between_name_searches(cached_service, api):
+    route = api.get("/pokemon").respond(json=listing_payload(["bulbasaur"]))
+
+    await cached_service.search_pokemon(name="zzz")
+    await cached_service.search_pokemon(name="yyy")
+
+    assert route.call_count == 1
+
+
+async def test_cache_expired_entry_calls_pokeapi_again(cached_service, api, monkeypatch):
+    route = api.get("/pokemon/25").respond(json=pokemon_payload())
+    monkeypatch.setattr("app.services.pokeapi_service._now", lambda: 1000.0)
+    await cached_service.get_pokemon(25)
+
+    monkeypatch.setattr("app.services.pokeapi_service._now", lambda: 1059.0)
+    await cached_service.get_pokemon(25)
+    assert route.call_count == 1
+
+    monkeypatch.setattr("app.services.pokeapi_service._now", lambda: 1060.0)
+    await cached_service.get_pokemon(25)
+    assert route.call_count == 2
+
+
+async def test_cache_does_not_store_errors(cached_service, api):
+    """Tras un fallo, la siguiente petición vuelve a intentarlo y puede recuperarse."""
+    route = api.get("/pokemon/25").mock(
+        side_effect=[httpx.Response(500), httpx.Response(200, json=pokemon_payload())]
+    )
+
+    with pytest.raises(HTTPException):
+        await cached_service.get_pokemon(25)
+    assert (await cached_service.get_pokemon(25))["id"] == 25
+
+    assert route.call_count == 2
+
+
+async def test_cache_disabled_with_zero_ttl_always_calls_pokeapi(api):
+    disabled = PokeAPIService(cache_ttl=0)
+    route = api.get("/pokemon/25").respond(json=pokemon_payload())
+
+    await disabled.get_pokemon(25)
+    await disabled.get_pokemon(25)
+
+    assert route.call_count == 2
+
+
+async def test_cache_full_discards_oldest_entry(cached_service, api, monkeypatch):
+    monkeypatch.setattr("app.services.pokeapi_service._CACHE_MAX_ENTRIES", 1)
+    first = api.get("/pokemon/1").respond(json=pokemon_payload(1, "bulbasaur"))
+    second = api.get("/pokemon/2").respond(json=pokemon_payload(2, "ivysaur"))
+
+    await cached_service.get_pokemon(1)
+    await cached_service.get_pokemon(2)
+    await cached_service.get_pokemon(2)
+    await cached_service.get_pokemon(1)
+
+    assert second.call_count == 1
+    assert first.call_count == 2
+
+
+async def test_clear_cache_forces_new_call(cached_service, api):
+    route = api.get("/pokemon/25").respond(json=pokemon_payload())
+
+    await cached_service.get_pokemon(25)
+    cached_service.clear_cache()
+    await cached_service.get_pokemon(25)
+
+    assert route.call_count == 2
+
+
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service
 

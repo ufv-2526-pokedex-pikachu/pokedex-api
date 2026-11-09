@@ -24,6 +24,13 @@ _MAX_SEARCH_LIMIT = 100
 _ALL_POKEMON_LIMIT = 100_000
 # Un sprite de PokeAPI ocupa unos pocos KB: más de esto no es un sprite normal.
 _MAX_SPRITE_BYTES = 1_000_000
+# Tope de respuestas guardadas en la caché, para que la memoria no crezca sin límite.
+_CACHE_MAX_ENTRIES = 1000
+
+
+def _now() -> float:
+    """Reloj de la caché: no retrocede aunque cambie la hora del sistema."""
+    return time.monotonic()
 
 
 def _elapsed_ms(start: float) -> float:
@@ -104,6 +111,34 @@ class PokeAPIService:
     BASE_URL = settings.POKEAPI_BASE_URL.rstrip("/")
     TIMEOUT = settings.POKEAPI_TIMEOUT
 
+    def __init__(self, cache_ttl: int = settings.POKEAPI_CACHE_TTL) -> None:
+        """`cache_ttl` son los segundos que dura cada respuesta guardada; 0 desactiva la caché."""
+        self._cache_ttl = cache_ttl
+        self._cache: dict[str, tuple[float, Any]] = {}
+
+    def clear_cache(self) -> None:
+        """Vacía la caché (los tests la vacían entre uno y otro para que no se mezclen)."""
+        self._cache.clear()
+
+    def _read_cache(self, key: str) -> Any | None:
+        """Devuelve la respuesta guardada, o `None` si no existe o ha caducado."""
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        expires_at, payload = entry
+        if _now() >= expires_at:
+            del self._cache[key]
+            return None
+        return payload
+
+    def _write_cache(self, key: str, payload: Any) -> None:
+        """Guarda una respuesta correcta; si la caché está llena, descarta la más antigua."""
+        if self._cache_ttl <= 0:
+            return
+        if len(self._cache) >= _CACHE_MAX_ENTRIES:
+            del self._cache[next(iter(self._cache))]
+        self._cache[key] = (_now() + self._cache_ttl, payload)
+
     def _new_client(self) -> httpx.AsyncClient:
         """Crea un cliente HTTP con la URL base, el timeout y el tope de conexiones."""
         return httpx.AsyncClient(
@@ -118,8 +153,13 @@ class PokeAPIService:
         path: str,
         params: dict[str, int] | None = None,
     ) -> Any:
-        """Hace un GET a PokeAPI, registra URL, status y duración, y traduce los errores."""
+        """Hace un GET a PokeAPI (o usa la caché), registra la llamada y traduce los errores."""
         url = client.build_request("GET", path, params=params).url
+        cached = self._read_cache(str(url))
+        if cached is not None:
+            logger.info("PokeAPI GET %s -> caché", url)
+            return cached
+
         start = time.perf_counter()
         try:
             response = await client.get(path, params=params)
@@ -138,10 +178,12 @@ class PokeAPIService:
         if not response.is_success:
             raise HTTPException(status_code=502, detail="Error al consultar PokeAPI")
         try:
-            return response.json()
+            payload = response.json()
         except ValueError as exc:
             logger.error("PokeAPI GET %s -> respuesta que no es JSON", url)
             raise HTTPException(status_code=502, detail="Respuesta no válida de PokeAPI") from exc
+        self._write_cache(str(url), payload)
+        return payload
 
     async def _fetch_pokemon(self, client: httpx.AsyncClient, slug: str) -> dict[str, Any]:
         """Pide un Pokémon con un cliente ya abierto y lo transforma."""

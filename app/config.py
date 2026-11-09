@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     POKEAPI_BASE_URL: str = "https://pokeapi.co/api/v2"
     POKEAPI_TIMEOUT: float = 10.0
+    POKEAPI_CACHE_TTL: int = 3600  # segundos; 0 desactiva la caché
 
     LOG_LEVEL: str = "INFO"
     RATE_LIMIT_ENABLED: bool = True
