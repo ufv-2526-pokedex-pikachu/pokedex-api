@@ -1,12 +1,14 @@
 """Tests de /api/v1/pokemon. PokeAPI siempre va simulada con respx: nunca se usa la red."""
 
+import base64
+
 import httpx
 import pytest
 import respx
 
 from app.limiter import limiter
 from app.services.pokeapi_service import PokeAPIService
-from tests.test_pokeapi_service import listing_payload, pokemon_payload
+from tests.test_pokeapi_service import listing_payload, pokemon_payload, species_payload
 
 BASE = PokeAPIService.BASE_URL
 SEARCH = "/api/v1/pokemon/search"
@@ -120,3 +122,81 @@ def test_search_rate_limit_31st_request_returns_429(client, auth_headers, api, m
 
     assert codes[:30] == [200] * 30
     assert codes[30] == 429
+
+
+# PNG real de 1×1 píxel, para que reportlab pueda dibujarlo.
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+SPRITE_URL = "https://img.test/sprites/25.png"
+CARD = "/api/v1/pokemon/pikachu/card"
+
+
+def pikachu_with_https_sprite() -> dict:
+    payload = pokemon_payload()
+    payload["sprites"]["front_default"] = SPRITE_URL
+    return payload
+
+
+def mock_card(api, *, sprite=None, species=None):
+    """Simula las tres llamadas de la ficha: Pokémon, especie y sprite."""
+    api.get(f"{BASE}/pokemon/pikachu").respond(json=pikachu_with_https_sprite())
+    api.get(f"{BASE}/pokemon-species/25").mock(
+        return_value=species or httpx.Response(200, json=species_payload([("es", "Ratón eléctrico.")]))
+    )
+    return api.get(SPRITE_URL).mock(return_value=sprite or httpx.Response(200, content=PNG))
+
+
+def test_card_returns_downloadable_pdf_with_image(client, auth_headers, api):
+    sprite = mock_card(api)
+
+    response = client.get(CARD, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'attachment; filename="pikachu-card.pdf"'
+    assert response.content.startswith(b"%PDF")
+    assert b"/Subtype /Image" in response.content
+    assert sprite.called
+
+
+@pytest.mark.parametrize(
+    "sprite",
+    [httpx.Response(500), httpx.Response(200, content=b"no soy una imagen")],
+    ids=["sprite-500", "sprite-corrupto"],
+)
+def test_card_without_valid_sprite_is_generated_without_image(client, auth_headers, api, sprite):
+    mock_card(api, sprite=sprite)
+
+    response = client.get(CARD, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+    assert b"/Subtype /Image" not in response.content
+
+
+def test_card_without_species_is_generated_without_description(client, auth_headers, api):
+    """Formas como `charizard-mega-x` no tienen especie con su ID: la ficha sale igual."""
+    mock_card(api, species=httpx.Response(404))
+
+    response = client.get(CARD, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+
+
+def test_card_species_server_error_returns_502(client, auth_headers, api):
+    mock_card(api, species=httpx.Response(500))
+
+    assert client.get(CARD, headers=auth_headers).status_code == 502
+
+
+def test_card_unknown_pokemon_returns_404(client, auth_headers, api):
+    api.get(f"{BASE}/pokemon/missingno").respond(404)
+
+    assert client.get("/api/v1/pokemon/missingno/card", headers=auth_headers).status_code == 404
+
+
+def test_card_without_token_returns_401(client, api):
+    assert client.get(CARD).status_code == 401
+    assert not api.calls.called
