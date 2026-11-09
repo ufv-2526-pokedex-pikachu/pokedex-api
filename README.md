@@ -89,7 +89,7 @@ Se aplica con `slowapi`, con una instancia única en `app/limiter.py`. Se cuenta
 | Tipo de endpoint | Límite | Constante |
 |---|---|---|
 | Registro | 5/hora | `LIMIT_REGISTER` |
-| Login | 10/minuto | `LIMIT_LOGIN` |
+| Login y refresh | 10/minuto | `LIMIT_LOGIN` |
 | Llaman a PokeAPI | 30/minuto | `LIMIT_POKEAPI` |
 | Resto de autenticados | 100/minuto | `LIMIT_AUTHENTICATED` |
 
