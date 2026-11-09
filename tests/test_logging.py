@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from app.config import settings
 from app.logging_config import LOG_FORMAT, configure_logging
 from app.main import app
 
@@ -60,6 +61,19 @@ def test_request_log_omits_query_string(client, caplog):
         client.get("/health?token=dato-sensible")
 
     assert "dato-sensible" not in caplog.text
+
+
+def test_cors_preflight_is_logged(client, caplog):
+    """El middleware de logging va por fuera de CORS: también registra las preflight."""
+    origin = settings.CORS_ORIGINS[0]
+    headers = {"Origin": origin, "Access-Control-Request-Method": "GET"}
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        client.options("/health", headers=headers)
+        client.options("/health", headers={**headers, "Origin": "https://otro.example"})
+
+    assert "OPTIONS /health -> 200" in caplog.text
+    assert "OPTIONS /health -> 400" in caplog.text
 
 
 def test_validation_error_returns_422_and_is_logged(logged_client, caplog):
