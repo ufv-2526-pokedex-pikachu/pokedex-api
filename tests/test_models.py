@@ -60,3 +60,13 @@ def test_username_unico(session):
     session.add(User(username="ash", email="b@poke.com", hashed_password="h"))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_mismo_pokemon_dos_veces_para_el_mismo_usuario_falla(session):
+    """La base de datos impide duplicados (owner_id, pokemon_id)."""
+    user, _ = _crear_usuario_con_pikachu(session)
+    session.add(
+        PokedexEntry(owner_id=user.id, pokemon_id=25, pokemon_name="pikachu", pokemon_sprite="x")
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()

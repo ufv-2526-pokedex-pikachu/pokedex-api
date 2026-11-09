@@ -5,9 +5,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
 
+from app.config import settings
 from app.database import create_db_and_tables
+from app.limiter import limiter, rate_limit_exceeded_handler
 from app.logging_config import configure_logging, log_requests, validation_exception_handler
+from app.routers import auth, pokedex
 
 
 @asynccontextmanager
@@ -26,8 +31,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+# Solo orígenes, métodos y cabeceras concretos: nunca "*", que además no admite credenciales.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+    max_age=3600,
+)
+# Se añade después de CORS para ser el middleware más externo: así también registra
+# las peticiones preflight y las que rechaza CORS.
 app.middleware("http")(log_requests)
+
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(pokedex.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Comprobar que la API está viva")
