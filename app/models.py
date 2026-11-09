@@ -4,13 +4,16 @@ Cambios respecto al enunciado (documentados en README → «Otras decisiones»):
 - `datetime.utcnow()` está obsoleto en Python 3.12: se usa `datetime.now(timezone.utc)`.
 - `Team.members` borra en cascada sus miembros al borrar el equipo.
 - `TeamMember.pokedex_entry` permite llegar desde un miembro a su entrada de la Pokédex.
+- `PokedexEntry.pokemon_types` guarda los tipos ("fire,flying") y un usuario no puede
+  tener dos veces el mismo `pokemon_id`.
 """
 
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import field_validator
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -37,6 +40,9 @@ class User(SQLModel, table=True):
 class PokedexEntry(SQLModel, table=True):
     """Entrada en la Pokédex de un usuario"""
 
+    # El enunciado prohíbe duplicados; la BD lo garantiza aunque lleguen dos peticiones a la vez.
+    __table_args__ = (UniqueConstraint("owner_id", "pokemon_id"),)
+
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id")
 
@@ -44,6 +50,7 @@ class PokedexEntry(SQLModel, table=True):
     pokemon_id: int = Field(index=True)  # ID en PokeAPI
     pokemon_name: str
     pokemon_sprite: str  # URL de la imagen
+    pokemon_types: str = ""  # Tipos separados por comas, p. ej. "fire,flying"
 
     # Datos del usuario
     is_captured: bool = Field(default=False)
@@ -146,3 +153,43 @@ class RefreshRequest(SQLModel):
     """Cuerpo de `POST /auth/refresh`."""
 
     refresh_token: str
+
+
+class PokedexEntryCreate(SQLModel):
+    """Cuerpo de `POST /pokedex`. El nombre, el sprite y los tipos se sacan de PokeAPI."""
+
+    pokemon_id: int = Field(ge=1)
+    nickname: Optional[str] = Field(default=None, max_length=50)
+    is_captured: bool = False
+    capture_date: Optional[datetime] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+    favorite: bool = False
+
+
+class PokedexEntryUpdate(SQLModel):
+    """Cuerpo de `PATCH /pokedex/{entry_id}`: solo se cambian los campos enviados."""
+
+    is_captured: Optional[bool] = None
+    capture_date: Optional[datetime] = None
+    nickname: Optional[str] = Field(default=None, max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    favorite: Optional[bool] = None
+
+
+class PokedexEntryRead(SQLModel):
+    """Una entrada de la Pokédex tal como la devuelve la API."""
+
+    id: int
+    pokemon_id: int
+    pokemon_name: str
+    pokemon_sprite: str
+    pokemon_types: str
+    is_captured: bool
+    capture_date: Optional[datetime]
+    nickname: Optional[str]
+    notes: Optional[str]
+    favorite: bool
+    created_at: datetime
+
+
+PokedexSort = Literal["pokemon_id", "capture_date", "pokemon_name"]
