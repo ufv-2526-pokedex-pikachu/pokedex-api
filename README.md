@@ -92,6 +92,11 @@ Todos requieren token (Bearer). Cada usuario solo ve y modifica sus entradas.
 | DELETE | `/{entry_id}` | Borra la entrada | 204, 404, 409 si está en un equipo |
 | GET | `/export` | Descarga la Pokédex: `format=csv\|pdf` (csv por defecto), filtros `captured` y `favorite` | 200 archivo, 422 |
 
+### Pokédex v2 (`/api/v2/pokedex`)
+| Método | Ruta | Descripción | Respuestas |
+|---|---|---|---|
+| GET | `/api/v2/pokedex` | Mismos filtros, orden y paginación que `GET /api/v1/pokedex`, pero responde `{total, limit, offset, items}`; cada entrada trae `pokemon_types` como lista y `evolution_chain` (de PokeAPI). Bearer; 30/minuto | 200, 401, 422 |
+
 ## Decisiones de Diseño
 
 ### Rate limiting
@@ -110,7 +115,37 @@ Se aplica con `slowapi`, con una instancia única en `app/limiter.py`. Se cuenta
 - **Limitaciones conocidas:** los contadores se guardan en memoria, así que se pierden al reiniciar y no se comparten entre varios procesos. Detrás de un proxy, todas las peticiones parecerían venir de la misma IP. Para producción habría que usar un almacenamiento compartido, como Redis, y leer la IP real del cliente.
 
 ### Versionado
-_Pendiente._
+La versión va en la ruta: `/api/v1/...` y `/api/v2/...`. Es lo más visible para quien usa la API (se ve en la URL, en los logs y en `/docs`) y permite servir las dos versiones a la vez desde la misma aplicación, cada una con su router (`app/routers/v2.py` define `v2_router = APIRouter(prefix="/api/v2")`, como en el enunciado).
+
+**v2 en esta API.** `GET /api/v2/pokedex` devuelve la misma Pokédex que v1, con los mismos filtros, orden y paginación (reutiliza la consulta de v1), pero:
+- envuelve la respuesta en `{total, limit, offset, items}`, para que el cliente sepa cuántas páginas hay;
+- devuelve `pokemon_types` como lista (`["fire", "flying"]`) en vez de texto (`"fire,flying"`);
+- añade a cada entrada `evolution_chain` (p. ej. `["charmander", "charmeleon", "charizard"]`): los datos de evolución que el enunciado pone de ejemplo, sacados automáticamente de PokeAPI en paralelo. Si PokeAPI falla con un Pokémon, esa entrada sale con `evolution_chain: null` y el resto de la lista no se ve afectada.
+
+Los dos primeros cambios romperían a cualquier cliente de v1, así que no se pueden hacer en v1: van en v2. `GET /api/v1/pokedex` sigue funcionando exactamente igual (hay un test que lo comprueba). v2 tiene el límite de 30/minuto porque llama a PokeAPI.
+
+**¿Por qué es importante versionar?**
+- Una API es un contrato: hay clientes (una web, una app móvil, scripts de terceros) que dependen de la forma exacta de las respuestas y que no se actualizan a la vez que el servidor.
+- Versionar permite evolucionar la API sin romperles: los clientes antiguos siguen en v1 y migran a v2 cuando quieren, en lugar de fallar el día que desplegamos.
+- Deja claro qué contrato usa cada cliente, lo que simplifica la documentación, los tests (se prueban las dos versiones) y el soporte.
+
+**¿Qué cambios justifican una nueva versión?** Los que rompen la compatibilidad hacia atrás, es decir, cuando un cliente que funcionaba deja de hacerlo:
+- quitar o renombrar un campo, un endpoint o un parámetro;
+- cambiar el tipo o el formato de un campo (como `pokemon_types` de texto a lista) o la estructura de la respuesta (de lista a objeto);
+- hacer obligatorio algo que era opcional, o endurecer una validación;
+- cambiar el significado de un campo, los códigos de respuesta o el comportamiento por defecto (orden, paginación);
+- cambiar la forma de autenticarse.
+
+En cambio, **no** necesitan versión nueva los cambios compatibles: añadir un endpoint, añadir un campo opcional a una respuesta o un parámetro opcional con un valor por defecto que mantiene el comportamiento anterior, y corregir errores. Esos se hacen en la misma versión. Por eso `evolution_chain`, por sí solo, no justificaría una v2: la justifican los otros dos cambios.
+
+**Estrategia de deprecación de versiones antiguas**
+1. **Anunciar:** cuando v2 esté estable, se marca v1 como obsoleta en el README, en `/docs` (`deprecated=True` en sus rutas) y en las notas de la release, con una guía de migración de v1 a v2.
+2. **Avisar en cada respuesta:** las respuestas de v1 llevan la cabecera `Deprecation` (RFC 9745), la cabecera `Sunset` con la fecha de retirada (RFC 8594) y `Link: </api/v2/pokedex>; rel="successor-version"`, para que los clientes lo detecten de forma automática.
+3. **Periodo de convivencia:** v1 y v2 funcionan a la vez durante un plazo fijo (por ejemplo, 6 meses). En v1 solo se corrigen errores y fallos de seguridad; las mejoras van a v2.
+4. **Medir:** el middleware de logging registra cuántas peticiones siguen llegando a `/api/v1` para avisar a los clientes que aún no han migrado.
+5. **Retirar:** pasada la fecha de `Sunset`, v1 responde `410 Gone` con un mensaje que indica la versión nueva durante un tiempo, y después se elimina su código.
+
+Nunca se mantienen más de dos versiones a la vez, para no multiplicar el coste de mantenimiento y de tests.
 
 ### Otras decisiones
 - **Base de datos:** SQLite, sin servidor que instalar. Se cambia por PostgreSQL solo con cambiar `DATABASE_URL`.
