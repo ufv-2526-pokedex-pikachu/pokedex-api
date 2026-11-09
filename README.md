@@ -91,6 +91,7 @@ Todos requieren token (Bearer). Cada usuario solo ve y modifica sus entradas.
 | PATCH | `/{entry_id}` | Cambia solo los campos enviados (`is_captured`, `capture_date`, `nickname`, `notes`, `favorite`) | 200, 404, 422 |
 | DELETE | `/{entry_id}` | Borra la entrada | 204, 404, 409 si está en un equipo |
 | GET | `/export` | Descarga la Pokédex: `format=csv\|pdf` (csv por defecto), filtros `captured` y `favorite` | 200 archivo, 422 |
+| GET | `/stats` | Estadísticas de mi Pokédex: `total_pokemon`, `captured`, `favorites`, `completion_percentage`, `most_common_type` y `capture_streak_days` (ver «Otras decisiones») | 200 |
 
 ## Decisiones de Diseño
 
@@ -133,6 +134,13 @@ _Pendiente._
   - **Borrar un Pokémon que está en un equipo → 409:** no se deja el equipo con un hueco; primero hay que sacarlo del equipo.
   - **Exportación:** por defecto incluye toda la Pokédex del usuario; `captured` y `favorite` la filtran. El enunciado dice "todos los Pokémon capturados" y también "opción de filtrar por capturados", así que el filtro es opcional. En el CSV, los valores que empiezan por `=`, `+`, `-` o `@` llevan un `'` delante para que Excel no los ejecute como fórmulas (inyección CSV).
   - **Rate limiting:** el alta llama a PokeAPI (30/min); el resto solo usa la base de datos (100/min).
+- **Estadísticas (`GET /pokedex/stats`):** el enunciado da el ejemplo `89 / 150 = 59,3 %`, así que se interpreta así:
+  - `total_pokemon`: entradas de **mi** Pokédex (no los más de 1000 Pokémon que existen). `captured` y `favorites`: las que tienen `is_captured` y `favorite`.
+  - `completion_percentage`: `captured / total_pokemon × 100`, redondeado a 1 decimal; `0.0` si la Pokédex está vacía.
+  - `most_common_type`: el tipo que más se repite entre todas mis entradas, usando los tipos guardados en `pokemon_types` (un `fire,flying` cuenta para los dos). Si hay empate, gana el primero en orden alfabético, para que el resultado no cambie de una llamada a otra. Es `null` si no hay tipos.
+  - `capture_streak_days`: días **seguidos** con al menos una captura (según `capture_date`, por días UTC) que terminan hoy o ayer. Si hoy aún no has capturado, la racha de ayer sigue viva; si la última captura es de antes de ayer, la racha es 0. Varias capturas el mismo día cuentan como un día.
+  - El cálculo está en `app/services/stats_service.py` como función pura (recibe las entradas y la fecha de hoy), para probarlo con fechas fijas. No llama a PokeAPI: límite de 100/min.
+  - La ruta `/stats` va en `pokedex.py` antes de las rutas `/{entry_id}`, como `/export`, para que nunca se interprete `stats` como un id.
 
 ## Decisiones de Seguridad
 - **Contraseñas:** se guardan solo como hash bcrypt (`passlib`), nunca en claro. La API nunca devuelve la contraseña ni su hash.
