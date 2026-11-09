@@ -128,7 +128,7 @@ def test_search_rate_limit_31st_request_returns_429(client, auth_headers, api, m
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
-SPRITE_URL = "https://img.test/sprites/25.png"
+SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png"
 CARD = "/api/v1/pokemon/pikachu/card"
 
 

@@ -483,7 +483,7 @@ def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service
 
 
-SPRITE_URL = "https://img.test/sprites/25.png"
+SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png"
 
 
 async def test_get_sprite_returns_image_bytes(service, caplog):
@@ -494,9 +494,23 @@ async def test_get_sprite_returns_image_bytes(service, caplog):
     assert f"Sprite GET {SPRITE_URL} -> 200" in caplog.text
 
 
-@pytest.mark.parametrize("url", [None, "", "http://img.test/25.png", "file:///etc/passwd"])
-async def test_get_sprite_without_https_url_returns_none_without_calling(service, url):
-    """Sin URL o sin https no se descarga nada (respx falla si se intenta salir a la red)."""
+@pytest.mark.parametrize(
+    "url",
+    [
+        None,
+        "",
+        "file:///etc/passwd",
+        "http://raw.githubusercontent.com/PokeAPI/sprites/25.png",
+        "https://img.test/25.png",
+        "https://169.254.169.254/latest/meta-data/",
+        "https://raw.githubusercontent.com.evil.test/25.png",
+        "https://raw.githubusercontent.com@evil.test/25.png",
+        "https://raw.githubusercontent.com:8443/25.png",
+        "https://raw.githubusercontent.com:abc/25.png",
+    ],
+)
+async def test_get_sprite_not_allowed_url_returns_none_without_calling(service, url):
+    """Solo https a raw.githubusercontent.com: nada más se descarga (respx falla si se intenta)."""
     with respx.mock:
         assert await service.get_sprite(url) is None
 
@@ -510,6 +524,13 @@ async def test_get_sprite_failure_returns_none(service, side_effect):
     with respx.mock as router:
         router.get(SPRITE_URL).mock(side_effect=[side_effect])
         assert await service.get_sprite(SPRITE_URL) is None
+
+
+async def test_get_sprite_not_allowed_url_is_logged(service, caplog):
+    with respx.mock, caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        assert await service.get_sprite("https://img.test/25.png") is None
+
+    assert "Sprite GET https://img.test/25.png -> descartado: URL no permitida" in caplog.text
 
 
 async def test_get_sprite_too_large_returns_none(service, monkeypatch, caplog):
