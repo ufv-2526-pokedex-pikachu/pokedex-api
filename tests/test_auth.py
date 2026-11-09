@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 
 from app.auth import ACCESS, _create_token, create_refresh_token, decode_token
+from app.limiter import limiter
 from app.models import User
 from tests.conftest import TEST_PASSWORD
 
@@ -181,3 +182,29 @@ def test_refresh_token_lasts_seven_days(test_user):
     """El refresh token caduca a los 7 días."""
     claims = decode_token(create_refresh_token(test_user), "refresh")
     assert claims["exp"] - claims["iat"] == 7 * 24 * 60 * 60
+
+
+# --- Rate limiting de los endpoints de auth ---
+
+
+@pytest.fixture
+def limited(monkeypatch):
+    """Activa el limiter aunque el `.env` lo apague."""
+    monkeypatch.setattr(limiter, "enabled", True)
+
+
+def test_login_rate_limit_returns_429_on_11th_request(client, test_user, limited):
+    """Rate limit del enunciado: 10 logins por minuto; el 11.º devuelve 429."""
+    codes = [_login(client).status_code for _ in range(11)]
+    assert codes == [200] * 10 + [429]
+
+
+def test_register_rate_limit_returns_429_on_6th_request(client, limited):
+    """5 registros por hora e IP; el 6.º devuelve 429 aunque los datos sean válidos."""
+    codes = [
+        client.post(
+            REGISTER, json={**NEW_USER, "username": f"user{i}", "email": f"u{i}@poke.com"}
+        ).status_code
+        for i in range(6)
+    ]
+    assert codes == [201] * 5 + [429]

@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +18,7 @@ from app.auth import (
 )
 from app.database import get_session
 from app.dependencies import get_current_user
+from app.limiter import LIMIT_AUTHENTICATED, LIMIT_LOGIN, LIMIT_REGISTER, limiter
 from app.models import RefreshRequest, Token, User, UserCreate, UserRead
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,10 @@ def _tokens(user: User) -> Token:
     summary="Registrar un usuario",
     responses={409: {"description": "El username o el email ya están registrados"}},
 )
-def register(data: UserCreate, session: Session = Depends(get_session)) -> User:
+@limiter.limit(LIMIT_REGISTER)
+def register(
+    request: Request, data: UserCreate, session: Session = Depends(get_session)
+) -> User:
     """Crea el usuario con la contraseña hasheada. 409 si el username o el email ya existen."""
     duplicate = session.exec(
         select(User).where(or_(User.username == data.username, User.email == data.email))
@@ -73,7 +77,9 @@ def register(data: UserCreate, session: Session = Depends(get_session)) -> User:
     summary="Iniciar sesión",
     responses={401: {"description": "Credenciales incorrectas"}},
 )
+@limiter.limit(LIMIT_LOGIN)
 def login(
+    request: Request,
     form: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)
 ) -> Token:
     """Devuelve un token de acceso (24 h) y un refresh token (7 días).
@@ -98,7 +104,11 @@ def login(
     summary="Renovar los tokens con un refresh token",
     responses={401: {"description": "Refresh token no válido o caducado"}},
 )
-def refresh(data: RefreshRequest, session: Session = Depends(get_session)) -> Token:
+# Público y emite tokens, como el login: mismo límite.
+@limiter.limit(LIMIT_LOGIN)
+def refresh(
+    request: Request, data: RefreshRequest, session: Session = Depends(get_session)
+) -> Token:
     """Cambia un refresh token válido por un par de tokens nuevo (bonus del enunciado)."""
     error = HTTPException(
         status.HTTP_401_UNAUTHORIZED,
@@ -117,6 +127,7 @@ def refresh(data: RefreshRequest, session: Session = Depends(get_session)) -> To
 
 
 @router.get("/me", response_model=UserRead, summary="Ver mi usuario")
-def me(current_user: User = Depends(get_current_user)) -> User:
+@limiter.limit(LIMIT_AUTHENTICATED)
+def me(request: Request, current_user: User = Depends(get_current_user)) -> User:
     """Devuelve el usuario dueño del token."""
     return current_user
