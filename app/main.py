@@ -4,12 +4,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.database import create_db_and_tables
 from app.limiter import limiter, rate_limit_exceeded_handler
+from app.logging_config import configure_logging, log_requests, validation_exception_handler
 from app.routers import auth, pokedex, pokemon, teams
 from app.routers.v2 import v2_router
 
@@ -17,6 +19,7 @@ from app.routers.v2 import v2_router
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Crea las tablas al arrancar la aplicación (sustituye a `@app.on_event`, obsoleto)."""
+    configure_logging()
     create_db_and_tables()
     yield
 
@@ -31,6 +34,7 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # Solo orígenes, métodos y cabeceras concretos: nunca "*", que además no admite credenciales.
 app.add_middleware(
@@ -41,6 +45,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
     max_age=3600,
 )
+# Se añade después de CORS para ser el middleware más externo: así también registra
+# las peticiones preflight y las que rechaza CORS.
+app.middleware("http")(log_requests)
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(pokemon.router, prefix="/api/v1")
