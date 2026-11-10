@@ -10,6 +10,7 @@ from app.auth import create_access_token, hash_password
 from app.limiter import limiter
 from app.main import app
 from app.models import PokedexEntry, Team, TeamMember, User
+from app.routers import pokedex as pokedex_router
 from app.services.pokeapi_service import get_pokeapi_service
 
 POKEDEX = "/api/v1/pokedex"
@@ -239,6 +240,26 @@ def test_export_pdf(client, auth_headers):
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"] == 'attachment; filename="pokedex.pdf"'
     assert response.content.startswith(b"%PDF")
+
+
+def test_export_pdf_wraps_long_cells_and_escapes_markup(client, auth_headers):
+    """Las notas largas saltan de línea dentro de la página y "<" o "&" no rompen el PDF."""
+    long_notes = "Lo encontré en la Ruta 1 <b>sin</b> Poké Balls & con prisa. " * 8
+    _add(client, auth_headers, 25, notes=long_notes)
+    response = client.get(f"{POKEDEX}/export?format=pdf", headers=auth_headers)
+    assert response.status_code == 200 and response.content.startswith(b"%PDF")
+
+    page_width = 700
+    short = pokedex_router._export_table([["25", "pikachu", "electric", "", "False", "", "False", "hola"]],
+                                         page_width)
+    long = pokedex_router._export_table([["25", "pikachu", "electric", "", "False", "", "False", long_notes]],
+                                        page_width)
+    short_width, short_height = short.wrap(page_width, 10_000)
+    long_width, long_height = long.wrap(page_width, 10_000)
+    assert long_width <= page_width + 0.01
+    assert long_height > short_height  # la fila crece hacia abajo en vez de salirse por la derecha
+    # Un username con "<" (lo permite el registro) rompía el título del PDF con un 500.
+    assert pokedex_router._to_pdf([], "ash<b").startswith(b"%PDF")
 
 
 def test_export_invalid_format_returns_422(client, auth_headers):

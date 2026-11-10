@@ -5,11 +5,12 @@ import io
 import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -44,6 +45,8 @@ _EXPORT_COLUMNS = [
     "favorite",
     "notes",
 ]
+# Parte del ancho de la página para cada columna de _EXPORT_COLUMNS (suman 1); las notas, las más largas.
+_PDF_COLUMN_SHARES = [0.08, 0.11, 0.10, 0.11, 0.09, 0.12, 0.07, 0.32]
 
 
 def _sync_capture_date(entry: PokedexEntry) -> None:
@@ -197,19 +200,28 @@ def _to_csv(rows: list[list[str]]) -> bytes:
     return buffer.getvalue().encode("utf-8-sig")
 
 
+def _export_table(rows: list[list[str]], width: float) -> Table:
+    """Tabla del PDF que ocupa `width` puntos: cada celda es un Paragraph para que el texto largo salte de línea."""
+    styles = getSampleStyleSheet()
+    cell_style = ParagraphStyle("cell", parent=styles["Normal"], fontSize=8, leading=10)
+    # Paragraph interpreta etiquetas tipo HTML: se escapa para que "<" o "&" en las notas no rompan el PDF.
+    data = [[Paragraph(escape(text), cell_style) for text in row] for row in [_EXPORT_COLUMNS, *rows]]
+    table = Table(data, colWidths=[width * share for share in _PDF_COLUMN_SHARES], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    return table
+
+
 def _to_pdf(rows: list[list[str]], username: str) -> bytes:
     """PDF apaisado con una tabla de las entradas."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title=f"Pokédex de {username}")
-    title = Paragraph(f"Pokédex de {username} ({len(rows)} entradas)",
+    title = Paragraph(escape(f"Pokédex de {username} ({len(rows)} entradas)"),
                       getSampleStyleSheet()["Title"])
-    table = Table([_EXPORT_COLUMNS, *rows], repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-    ]))
-    doc.build([title, table])
+    doc.build([title, _export_table(rows, doc.width)])
     return buffer.getvalue()
 
 

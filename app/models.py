@@ -258,3 +258,35 @@ class TeamRead(SQLModel):
     created_at: datetime
     pokemon_ids: List[int]
     members: List[TeamMemberRead]
+
+
+# --- Schemas de la API v2 (ver README → «Versionado») ---
+
+
+class PokedexEntryReadV2(SQLModel):
+    """Entrada de la Pokédex en v2: tipos como lista y cadena de evolución.
+
+    `evolution_chain` es `None` si PokeAPI no pudo darla para esa entrada.
+    """
+
+    id: int
+    pokemon_id: int
+    pokemon_name: str
+    pokemon_sprite: str
+    pokemon_types: List[str]
+    evolution_chain: Optional[List[str]] = None
+    is_captured: bool
+    capture_date: Optional[datetime]
+    nickname: Optional[str]
+    notes: Optional[str]
+    favorite: bool
+    created_at: datetime
+
+
+class PokedexPageV2(SQLModel):
+    """Respuesta de `GET /api/v2/pokedex`: una página de entradas y el total sin paginar."""
+
+    total: int
+    limit: int
+    offset: int
+    items: List[PokedexEntryReadV2]
