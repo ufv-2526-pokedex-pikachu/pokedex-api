@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from app.config import settings
-from app.logging_config import LOG_FORMAT, configure_logging
+from app.logging_config import LOG_FORMAT, QUIET_LOGGERS, configure_logging
 from app.main import app
 
 LOGGER_NAME = "app.logging_config"
@@ -110,10 +110,13 @@ def test_unhandled_exception_is_logged_as_500(logged_client, caplog):
 
 @pytest.fixture
 def clean_root_logger():
-    """Guarda los handlers del logger raíz y los restaura al terminar el test."""
+    """Guarda los handlers del logger raíz (y el nivel de los silenciados) y los restaura al terminar."""
     root = logging.getLogger()
     handlers, level = root.handlers[:], root.level
+    quiet_levels = {name: logging.getLogger(name).level for name in QUIET_LOGGERS}
     yield root
+    for name, quiet_level in quiet_levels.items():
+        logging.getLogger(name).setLevel(quiet_level)
     for handler in root.handlers:
         if handler not in handlers:
             handler.close()
@@ -146,3 +149,19 @@ def test_configure_logging_writes_to_file_and_console(clean_root_logger, tmp_pat
     }
     assert clean_root_logger.handlers[0].formatter._fmt == LOG_FORMAT
     assert "prueba - WARNING - mensaje de prueba" in log_file.read_text(encoding="utf-8")
+
+
+def test_configure_logging_silences_httpx_info(clean_root_logger, tmp_path):
+    """Las líneas INFO de httpx no llegan al archivo (duplicarían las de pokeapi_service); sus avisos sí."""
+    log_file = tmp_path / "test.log"
+    clean_root_logger.handlers.clear()
+
+    configure_logging(str(log_file))
+    logging.getLogger("httpx").info('HTTP Request: GET https://pokeapi.co/api/v2/pokemon/25 "200 OK"')
+    logging.getLogger("httpx").warning("aviso de httpx")
+    logging.getLogger("app.services.pokeapi_service").info("PokeAPI GET ... -> 200 (40 ms)")
+
+    content = log_file.read_text(encoding="utf-8")
+    assert "HTTP Request" not in content
+    assert "httpx - WARNING - aviso de httpx" in content
+    assert "PokeAPI GET ... -> 200 (40 ms)" in content
