@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException
@@ -22,6 +23,11 @@ _MAX_CONNECTIONS = 20
 _MAX_SEARCH_LIMIT = 100
 # PokeAPI no filtra por texto: para buscar por nombre hay que pedir la lista completa.
 _ALL_POKEMON_LIMIT = 100_000
+# Un sprite de PokeAPI ocupa unos pocos KB: más de esto no es un sprite normal.
+_MAX_SPRITE_BYTES = 1_000_000
+# Único servidor desde el que se descargan sprites: los de PokeAPI están en GitHub.
+# Así una URL inesperada en la respuesta de PokeAPI no puede llevarnos a otro sitio (SSRF).
+_SPRITE_HOSTS = frozenset({"raw.githubusercontent.com"})
 # Tope de respuestas guardadas en la caché, para que la memoria no crezca sin límite.
 _CACHE_MAX_ENTRIES = 1000
 
@@ -29,6 +35,21 @@ _CACHE_MAX_ENTRIES = 1000
 def _now() -> float:
     """Reloj de la caché: no retrocede aunque cambie la hora del sistema."""
     return time.monotonic()
+
+
+def _is_allowed_sprite_url(url: str) -> bool:
+    """Solo `https`, al host de los sprites, sin usuario ni puerto (evita trucos como `host@otro`)."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.hostname in _SPRITE_HOSTS
+        and parts.username is None
+        and port is None
+    )
 
 
 def _elapsed_ms(start: float) -> float:
@@ -290,6 +311,41 @@ class PokeAPIService:
         async with self._new_client() as client:
             payload = await self._get_json(client, f"/type/{slug}")
         return _transform(_to_type_members, payload)
+
+    async def get_sprite(self, url: str | None) -> bytes | None:
+        """Descarga la imagen de un sprite para la ficha en PDF.
+
+        Devuelve `None` en vez de lanzar un error si no hay URL, si no es `https` a
+        `raw.githubusercontent.com`, si la descarga falla o si la imagen es demasiado
+        grande: la ficha se genera sin imagen.
+        """
+        if not url or not _is_allowed_sprite_url(url):
+            if url:
+                logger.warning("Sprite GET %s -> descartado: URL no permitida", url)
+            return None
+        start = time.perf_counter()
+        chunks: list[bytes] = []
+        received = 0
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
+                # Se lee por partes para cortar en cuanto pasa del tope, sin descargar el resto.
+                async with client.stream("GET", url) as response:
+                    if response.is_success:
+                        async for chunk in response.aiter_bytes():
+                            received += len(chunk)
+                            if received > _MAX_SPRITE_BYTES:
+                                logger.warning(
+                                    "Sprite GET %s -> descartado: pasa de %d bytes",
+                                    url,
+                                    _MAX_SPRITE_BYTES,
+                                )
+                                return None
+                            chunks.append(chunk)
+        except httpx.HTTPError as exc:
+            logger.warning("Sprite GET %s -> error: %r (%.0f ms)", url, exc, _elapsed_ms(start))
+            return None
+        logger.info("Sprite GET %s -> %s (%.0f ms)", url, response.status_code, _elapsed_ms(start))
+        return b"".join(chunks) if response.is_success else None
 
 
 # Instancia única de la aplicación.
