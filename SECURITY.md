@@ -57,7 +57,7 @@ el tiempo de respuesta no delate qué usernames están registrados.
 |---|---|---|
 | Registro | 5/hora | `POST /auth/register` |
 | Login y refresh | 10/minuto | `POST /auth/login`, `POST /auth/refresh` |
-| Llaman a PokeAPI | 30/minuto | `POST /pokedex`, `GET /teams/{id}/export`; `GET /api/v2/pokedex`; búsqueda, detalle y `/card` de `/pokemon` (PR #25) |
+| Llaman a PokeAPI | 30/minuto | `POST /pokedex`, `GET /teams/{id}/export`; `GET /api/v2/pokedex`; búsqueda, detalle y `/card` de `/pokemon` |
 | Resto de autenticados | 100/minuto | `/auth/me`, el resto de `/pokedex` (incluidos `/stats` y `/export`) y de `/teams` |
 
 **Justificación:**
@@ -126,10 +126,10 @@ un script): para eso están la autenticación y el rate limiting.
 | **API1 Broken Object Level Authorization** | Cada consulta filtra por el usuario del token (`owner_id`, `trainer_id`). Las entradas de la Pokédex y los equipos de otro usuario devuelven **404**, no 403, para no revelar que existen. Un equipo solo admite Pokémon de la Pokédex de su dueño. |
 | **API2 Broken Authentication** | JWT con firma, caducidad y tipo comprobados; bcrypt; rate limiting en login, refresh y registro; mensajes de error genéricos y tiempo de respuesta constante en el login. |
 | **API3 Broken Object Property Level Authorization** | Schemas de entrada y salida separados de las tablas: el cliente solo puede enviar los campos permitidos (no puede fijar `owner_id` ni `is_active`) y las respuestas nunca incluyen `hashed_password`. |
-| **API4 Unrestricted Resource Consumption** | Rate limiting; `limit` máximo de 100 en los listados; equipos de 6 Pokémon como máximo; longitud máxima en textos (`nickname` 50, `notes` 500, nombre de equipo 100); timeout de PokeAPI (10 s), tope de 20 conexiones simultáneas y caché con un máximo de 1000 respuestas; el sprite de la ficha `/card` se lee por partes y se descarta en cuanto pasa de 1 MB (PR #25). |
+| **API4 Unrestricted Resource Consumption** | Rate limiting; `limit` máximo de 100 en los listados; equipos de 6 Pokémon como máximo; longitud máxima en textos (`nickname` 50, `notes` 500, nombre de equipo 100); timeout de PokeAPI (10 s), tope de 20 conexiones simultáneas y caché con un máximo de 1000 respuestas; el sprite de la ficha `/card` se lee por partes y se descarta en cuanto pasa de 1 MB. |
 | **API5 Broken Function Level Authorization** | No hay funciones de administración: todos los endpoints actúan solo sobre los datos del propio usuario. |
 | **API6 Unrestricted Access to Sensitive Business Flows** | Registro limitado a 5 por hora y por IP. |
-| **API7 Server Side Request Forgery** | Los identificadores que van a la URL de PokeAPI se validan con una expresión regular (solo letras, números y guiones), así que `../` no llega nunca a la URL. La cadena de evolución usa solo el número de la URL que da PokeAPI y la pide siempre a `POKEAPI_BASE_URL`, nunca a la URL que venga en la respuesta. Los sprites de la ficha solo se descargan por `https` desde `raw.githubusercontent.com`, sin usuario ni puerto y sin seguir redirecciones (PR #25). |
+| **API7 Server Side Request Forgery** | Los identificadores que van a la URL de PokeAPI se validan con una expresión regular (solo letras, números y guiones), así que `../` no llega nunca a la URL. La cadena de evolución usa solo el número de la URL que da PokeAPI y la pide siempre a `POKEAPI_BASE_URL`, nunca a la URL que venga en la respuesta. Los sprites de la ficha solo se descargan por `https` desde `raw.githubusercontent.com`, sin usuario ni puerto y sin seguir redirecciones. |
 | **API8 Security Misconfiguration** | CORS con orígenes, métodos y cabeceras concretos; `SECRET_KEY` obligatoria; `.env` fuera del repositorio; versiones de dependencias fijadas en `requirements.txt`. |
 | **API9 Improper Inventory Management** | Versiones en la ruta (`/api/v1`, `/api/v2`), documentadas en `/docs` y en el README, con una estrategia de deprecación (README → «Versionado»). |
 | **API10 Unsafe Consumption of APIs** | Las respuestas de PokeAPI se validan y se transforman antes de usarlas: si cambian de formato, la API responde 502 en vez de fallar o devolver datos raros. Timeouts → 504; errores de red → 502. |
