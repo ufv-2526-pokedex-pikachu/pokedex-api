@@ -1,0 +1,73 @@
+"""Fixtures compartidas por todos los tests."""
+
+import os
+
+# Antes de importar la app: si faltan, valores de prueba para la clave y la base de datos.
+# El resto de variables se lee del .env si existe (ver README → Testing).
+os.environ.setdefault("SECRET_KEY", "clave-solo-para-tests")
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+
+import app.models  # noqa: E402,F401  (registra las tablas)
+from app.auth import create_access_token, hash_password  # noqa: E402
+from app.database import get_session  # noqa: E402
+from app.limiter import limiter  # noqa: E402
+from app.models import User  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services.pokeapi_service import pokeapi_service  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Reinicia los contadores en cada test para que los límites no se acumulen entre ellos."""
+    limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def clear_pokeapi_cache():
+    """Vacía la caché de PokeAPI en cada test, para que una respuesta simulada no pase a otro."""
+    pokeapi_service.clear_cache()
+
+
+@pytest.fixture
+def session():
+    """Base de datos SQLite en memoria, nueva y vacía para cada test."""
+    # StaticPool: todas las conexiones comparten la misma base en memoria.
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+
+
+@pytest.fixture
+def client(session):
+    """Cliente HTTP de pruebas que usa la base de datos del test en vez de la real."""
+    app.dependency_overrides[get_session] = lambda: session
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+TEST_PASSWORD = "Pikachu123"
+
+
+@pytest.fixture
+def test_user(session):
+    """Usuario ya registrado, con contraseña `TEST_PASSWORD`."""
+    user = User(username="ash", email="ash@poke.com", hashed_password=hash_password(TEST_PASSWORD))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers(test_user):
+    """Cabecera `Authorization` con un token de acceso válido de `test_user`."""
+    return {"Authorization": f"Bearer {create_access_token(test_user)}"}
