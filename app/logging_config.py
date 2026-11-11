@@ -15,12 +15,16 @@ logger = logging.getLogger(__name__)
 
 LOG_FILE = "pokedex_api.log"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# Librerías que escriben una línea INFO por cada petición que ya registramos nosotros.
+QUIET_LOGGERS = ("httpx",)
 
 
 def configure_logging(log_file: str = LOG_FILE) -> None:
     """Envía los logs de la aplicación a un archivo y a la consola.
 
     Si el logging ya está configurado (por ejemplo, por pytest) no cambia nada ni crea el archivo.
+    `httpx` se sube a WARNING: `pokeapi_service` ya registra cada llamada con su duración, y
+    si no cada una saldría dos veces. Sus avisos y errores se siguen viendo.
     """
     if logging.getLogger().handlers:
         return
@@ -29,6 +33,8 @@ def configure_logging(log_file: str = LOG_FILE) -> None:
         format=LOG_FORMAT,
         handlers=[logging.FileHandler(log_file, encoding="utf-8"), logging.StreamHandler()],
     )
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 async def log_requests(
