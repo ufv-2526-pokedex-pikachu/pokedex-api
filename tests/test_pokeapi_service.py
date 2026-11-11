@@ -481,3 +481,86 @@ async def test_clear_cache_forces_new_call(cached_service, api):
 
 def test_get_pokeapi_service_returns_single_instance():
     assert get_pokeapi_service() is pokeapi_service
+
+
+SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png"
+
+
+async def test_get_sprite_returns_image_bytes(service, caplog):
+    with respx.mock as router, caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        router.get(SPRITE_URL).respond(content=b"bytes-de-imagen")
+        assert await service.get_sprite(SPRITE_URL) == b"bytes-de-imagen"
+
+    assert f"Sprite GET {SPRITE_URL} -> 200" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        None,
+        "",
+        "file:///etc/passwd",
+        "http://raw.githubusercontent.com/PokeAPI/sprites/25.png",
+        "https://img.test/25.png",
+        "https://169.254.169.254/latest/meta-data/",
+        "https://raw.githubusercontent.com.evil.test/25.png",
+        "https://raw.githubusercontent.com@evil.test/25.png",
+        "https://raw.githubusercontent.com:8443/25.png",
+        "https://raw.githubusercontent.com:abc/25.png",
+    ],
+)
+async def test_get_sprite_not_allowed_url_returns_none_without_calling(service, url):
+    """Solo https a raw.githubusercontent.com: nada más se descarga (respx falla si se intenta)."""
+    with respx.mock:
+        assert await service.get_sprite(url) is None
+
+
+@pytest.mark.parametrize(
+    "side_effect",
+    [httpx.Response(404), httpx.Response(500), httpx.ConnectError("sin red"), httpx.ReadTimeout("lento")],
+)
+async def test_get_sprite_failure_returns_none(service, side_effect):
+    """Si falla la descarga, la ficha se hará sin imagen: nunca un error."""
+    with respx.mock as router:
+        router.get(SPRITE_URL).mock(side_effect=[side_effect])
+        assert await service.get_sprite(SPRITE_URL) is None
+
+
+async def test_get_sprite_not_allowed_url_is_logged(service, caplog):
+    with respx.mock, caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        assert await service.get_sprite("https://img.test/25.png") is None
+
+    assert "Sprite GET https://img.test/25.png -> descartado: URL no permitida" in caplog.text
+
+
+async def test_get_sprite_too_large_returns_none(service, monkeypatch, caplog):
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    with respx.mock as router, caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        router.get(SPRITE_URL).respond(content=b"x" * 11)
+        assert await service.get_sprite(SPRITE_URL) is None
+
+    assert "descartado: pasa de 10 bytes" in caplog.text
+
+
+async def test_get_sprite_stops_reading_when_over_limit(service, monkeypatch):
+    """Corta en cuanto pasa del tope: no sigue leyendo el resto de la respuesta."""
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    read = []
+
+    async def endless_body():
+        for _ in range(1000):
+            read.append(1)
+            yield b"x" * 8
+
+    with respx.mock as router:
+        router.get(SPRITE_URL).respond(stream=endless_body())
+        assert await service.get_sprite(SPRITE_URL) is None
+
+    assert len(read) == 2
+
+
+async def test_get_sprite_at_exact_limit_is_accepted(service, monkeypatch):
+    monkeypatch.setattr("app.services.pokeapi_service._MAX_SPRITE_BYTES", 10)
+    with respx.mock as router:
+        router.get(SPRITE_URL).respond(content=b"x" * 10)
+        assert await service.get_sprite(SPRITE_URL) == b"x" * 10

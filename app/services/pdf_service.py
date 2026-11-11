@@ -233,3 +233,48 @@ def build_team_pdf(
 
     canvas.save()
     return buffer.getvalue()
+
+
+# Página de la ficha suelta (`/pokemon/{id_or_name}/card`): una tarjeta vertical, algo menor que A6.
+_CARD_PAGE_SIZE = (300.0, 440.0)
+_CARD_MARGIN = 12
+
+
+def _readable_image(data: Optional[bytes]) -> Optional[bytes]:
+    """Devuelve los bytes si son una imagen que reportlab puede dibujar; si no, `None`."""
+    if not data:
+        return None
+    try:
+        ImageReader(io.BytesIO(data)).getSize()
+    except Exception:  # Pillow lanza errores distintos según cómo esté rota la imagen.
+        return None
+    return data
+
+
+def build_pokemon_card_pdf(
+    pokemon: dict[str, Any],
+    *,
+    description: Optional[str] = None,
+    sprite: Optional[bytes] = None,
+) -> bytes:
+    """Genera el PDF de una página con la ficha de un Pokémon y devuelve sus bytes.
+
+    Reutiliza `draw_pokemon_card`. Si `sprite` no es una imagen válida, la ficha se
+    dibuja sin imagen en lugar de fallar.
+    """
+    buffer = io.BytesIO()
+    width, height = _CARD_PAGE_SIZE
+    canvas = Canvas(buffer, pagesize=_CARD_PAGE_SIZE)
+    canvas.setTitle(f"Ficha de {str(pokemon.get('name', '?')).capitalize()}")
+    draw_pokemon_card(
+        canvas,
+        pokemon,
+        _CARD_MARGIN,
+        _CARD_MARGIN,
+        width - 2 * _CARD_MARGIN,
+        height - 2 * _CARD_MARGIN,
+        description=description,
+        sprite=_readable_image(sprite),
+    )
+    canvas.save()
+    return buffer.getvalue()

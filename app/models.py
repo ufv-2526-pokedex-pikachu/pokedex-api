@@ -290,3 +290,32 @@ class PokedexPageV2(SQLModel):
     limit: int
     offset: int
     items: List[PokedexEntryReadV2]
+
+
+# --- Schemas de Pokémon (respuestas de /pokemon, datos de PokeAPI ya transformados) ---
+
+
+class PokemonSummary(SQLModel):
+    """Un resultado de la búsqueda: la lista simplificada del enunciado."""
+
+    id: int
+    name: str
+    sprite: Optional[str] = None
+    types: List[str]
+
+
+class PokemonSearchResult(SQLModel):
+    """Respuesta de `GET /pokemon/search`. `count` es el total de coincidencias, no solo de la página."""
+
+    count: int
+    results: List[PokemonSummary]
+
+
+class PokemonDetail(PokemonSummary):
+    """Detalle completo de un Pokémon: stats, habilidades, tipos y sprites."""
+
+    sprites: dict[str, Optional[str]]
+    stats: dict[str, int]
+    abilities: List[str]
+    height: int
+    weight: int

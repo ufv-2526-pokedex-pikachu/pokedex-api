@@ -12,7 +12,7 @@ from app.config import settings
 from app.database import create_db_and_tables
 from app.limiter import limiter, rate_limit_exceeded_handler
 from app.logging_config import configure_logging, log_requests, validation_exception_handler
-from app.routers import auth, pokedex, teams
+from app.routers import auth, pokedex, pokemon, teams
 from app.routers.v2 import v2_router
 
 
@@ -50,6 +50,7 @@ app.add_middleware(
 app.middleware("http")(log_requests)
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(pokemon.router, prefix="/api/v1")
 app.include_router(pokedex.router, prefix="/api/v1")
 app.include_router(teams.router, prefix="/api/v1")
 # v2 lleva su prefijo /api/v2 en el propio router, como en el ejemplo del enunciado.
