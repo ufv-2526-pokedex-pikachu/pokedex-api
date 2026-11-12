@@ -4,7 +4,17 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from app.models import PokedexEntry, Team, TeamMember, User
+from app.models import (
+    PokedexEntry,
+    PokedexEntryCreate,
+    PokedexEntryUpdate,
+    Team,
+    TeamCreate,
+    TeamMember,
+    TeamUpdate,
+    User,
+    UserCreate,
+)
 
 
 def _crear_usuario_con_pikachu(session):
@@ -70,3 +80,14 @@ def test_mismo_pokemon_dos_veces_para_el_mismo_usuario_falla(session):
     )
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+@pytest.mark.parametrize(
+    "model", [UserCreate, PokedexEntryCreate, PokedexEntryUpdate, TeamCreate, TeamUpdate]
+)
+def test_swagger_examples_are_valid(model):
+    """Los ejemplos que rellenan /docs pasan la validación de su modelo (si no, Execute daría 422)."""
+    examples = model.model_json_schema()["examples"]
+    assert examples
+    for example in examples:
+        model.model_validate(example)
