@@ -106,6 +106,11 @@ _EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 class UserCreate(SQLModel):
     """Datos para registrarse."""
 
+    # Los ejemplos rellenan el cuerpo en /docs con datos válidos: basta con pulsar Execute.
+    model_config = {"json_schema_extra": {"examples": [
+        {"username": "ash", "email": "ash@pokemon.com", "password": "Pikachu123"}
+    ]}}
+
     username: str = Field(min_length=3, max_length=50)
     email: str = Field(max_length=254)
     password: str
@@ -159,6 +164,11 @@ class RefreshRequest(SQLModel):
 class PokedexEntryCreate(SQLModel):
     """Cuerpo de `POST /pokedex`. El nombre, el sprite y los tipos se sacan de PokeAPI."""
 
+    model_config = {"json_schema_extra": {"examples": [
+        {"pokemon_id": 25, "nickname": "Pika", "is_captured": True,
+         "notes": "Mi primer Pokémon", "favorite": True}
+    ]}}
+
     pokemon_id: int = Field(ge=1)
     nickname: Optional[str] = Field(default=None, max_length=50)
     is_captured: bool = False
@@ -169,6 +179,10 @@ class PokedexEntryCreate(SQLModel):
 
 class PokedexEntryUpdate(SQLModel):
     """Cuerpo de `PATCH /pokedex/{entry_id}`: solo se cambian los campos enviados."""
+
+    model_config = {"json_schema_extra": {"examples": [
+        {"nickname": "Sparky", "favorite": False}
+    ]}}
 
     is_captured: Optional[bool] = None
     capture_date: Optional[datetime] = None
@@ -218,6 +232,11 @@ class TeamCreate(SQLModel):
     `pokemon_ids` son IDs de PokeAPI que tienen que estar en la Pokédex del usuario.
     Su orden es la posición en el equipo (1-6).
     """
+
+    # Pikachu (25) es el Pokémon del ejemplo de POST /pokedex, así que funciona justo después.
+    model_config = {"json_schema_extra": {"examples": [
+        {"name": "Equipo Kanto", "description": "Mi equipo para la Liga", "pokemon_ids": [25]}
+    ]}}
 
     name: str = Field(min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
